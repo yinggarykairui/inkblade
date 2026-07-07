@@ -3647,7 +3647,8 @@ function drawDuelHUD() {
     ctx.beginPath(); ctx.arc(W / 2 + 70, 24, 5, 0, TAU); ctx.fill();
     ctx.font = 'italic 10px Georgia,serif'; ctx.fillStyle = 'rgba(43,35,32,.6)';
     ctx.textAlign = 'left';
-    ctx.fillText(net.stall ? 'waiting for the wire…' : Math.round(rtt) + 'ms', W / 2 + 80, 25);
+    ctx.fillText(net.stall ? 'waiting for the wire…'
+                           : Math.round(rtt) + 'ms · d' + net.delay, W / 2 + 80, 25);
     ctx.textAlign = 'center';
   }
   if (game.time < 6) {
@@ -3675,8 +3676,9 @@ function drawDuelHUD() {
    loss handling, only latency. Cosmetic randomness (particles) never
    touches fighter state, so the sims cannot drift. Restricted to the
    dojo ground — its hazards are none, its floor deterministic.         */
-const NET_DELAY = 3;
-let net = null;   // {peer, conn, host, started, tick, acc, localQ, remoteQ, pend, rtt, stall}
+const NET_DELAY = 3;   // minimum input delay in ticks; a pre-match RTT probe raises it
+let net = null;   // {peer, conn, host, started, tick, delay, acc, sendAcc, sendTick,
+                  //  localQ, remoteQ, pend, rtt, stall}
 function netStatus(msg, bad) {
   const el = document.getElementById('netMsg');
   if (el) { el.textContent = msg || ''; el.style.color = bad ? 'var(--red)' : 'var(--gold)'; }
@@ -3741,18 +3743,36 @@ function joinDuel(code) {
     const peer = new window.Peer();
     net = { peer, host: false, started: false };
     netStatus('seeking the host…');
-    peer.on('open', () => { if (net) wireConn(peer.connect('inkblade-' + code)); });
+    // reliable:false → PeerJS opens the channel UNORDERED (still retransmitting).
+    // Inputs are keyed by tick, so order is irrelevant — and one late packet
+    // no longer holds every packet behind it hostage (no head-of-line stalls).
+    peer.on('open', () => {
+      if (net) wireConn(peer.connect('inkblade-' + code, { reliable: false }));
+    });
     peer.on('error', e => netDropped('no room answered to that code (' + (e && e.type || 'error') + ')'));
   });
 }
 function onNetData(d) {
   if (!net || !d) return;
   if (d.t === 'join' && net.host && !net.started) {
-    net.conn.send({ t: 'start', hostBlade: menuSel.p1Blade, guestBlade: d.blade,
-                    mut: menuSel.mut });
-    startOnlineDuel(menuSel.p1Blade, d.blade, menuSel.mut);
+    // measure the wire before the first blade is drawn — the round trip
+    // sizes the input delay for the whole match
+    net.guestBlade = d.blade;
+    netStatus('measuring the wire…');
+    net.conn.send({ t: 'probe', ts: performance.now() });
+  } else if (d.t === 'probe' && !net.host) {
+    net.conn.send({ t: 'probeAck', ts: d.ts });
+  } else if (d.t === 'probeAck' && net.host && !net.started) {
+    const rtt = performance.now() - d.ts;
+    net.rtt = rtt;
+    // one-way trip in ticks, plus two of headroom — a 40ms wire plays at
+    // the old feel (3), a 200ms wire flows at 8 instead of stuttering
+    const delay = clamp(Math.round(rtt / 2 / (1000 / 60)) + 2, NET_DELAY, 9);
+    net.conn.send({ t: 'start', hostBlade: menuSel.p1Blade, guestBlade: net.guestBlade,
+                    mut: menuSel.mut, delay });
+    startOnlineDuel(menuSel.p1Blade, net.guestBlade, menuSel.mut, delay);
   } else if (d.t === 'start' && !net.host && !net.started) {
-    startOnlineDuel(d.hostBlade, d.guestBlade, d.mut);
+    startOnlineDuel(d.hostBlade, d.guestBlade, d.mut, d.delay);
   } else if (d.t === 'in') {
     net.remoteQ[d.k] = d.b;
   } else if (d.t === 'ping') {
@@ -3763,7 +3783,7 @@ function onNetData(d) {
     netDropped('the other side withdrew');
   }
 }
-function startOnlineDuel(hostBlade, guestBlade, mut) {
+function startOnlineDuel(hostBlade, guestBlade, mut, delay) {
   menuSel.duelOpp = 'online';
   menuSel.duelArena = 0;                    // deterministic ground, no hazards
   menuSel.mut = Object.assign({ sudden: false, nostam: false, giant: false, mirror: false }, mut);
@@ -3775,14 +3795,18 @@ function startOnlineDuel(hostBlade, guestBlade, mut) {
   duel.p1.name = net.host ? 'YOU · HOST' : 'THE HOST';
   duel.p2.name = net.host ? 'THE CHALLENGER' : 'YOU';
   Object.assign(net, {
-    started: true, tick: 0, acc: 0, localQ: {}, remoteQ: {},
-    pend: { atk: false, roll: false, parry: false }, rtt: 0, stall: false, pingT: 0,
+    started: true, tick: 0, acc: 0, sendAcc: 0,
+    delay: clamp(delay || NET_DELAY, NET_DELAY, 9),
+    localQ: {}, remoteQ: {},
+    pend: { atk: false, roll: false, parry: false },
+    rtt: net.rtt || 0, stall: false, pingT: 0,
   });
   // prime the input pipeline so tick 0 can step immediately
-  for (let k = 0; k < NET_DELAY; k++) {
+  for (let k = 0; k < net.delay; k++) {
     net.localQ[k] = 0;
     try { net.conn.send({ t: 'in', k, b: 0 }); } catch (e) {}
   }
+  net.sendTick = net.delay;
   setBanner('決闘 ONLINE — ROUND 1 · first to 2', 2.2);
 }
 function sampleLocalBits() {
@@ -3811,23 +3835,39 @@ function applyBits(f, b) {
   if (b & 32) f.dodgeBuf = .1;
   if (b & 64) f.parryBuf = .1;
 }
+function commitLocal(k) {   // sample now, remember, and put it on the wire
+  if (net.localQ[k] !== undefined) return;
+  const b = sampleLocalBits();
+  net.localQ[k] = b;
+  try { net.conn.send({ t: 'in', k, b }); } catch (e) {}
+}
 function netFrame(rawDt) {
+  // commit inputs on the WALL clock, independent of sim progress — the
+  // pipe stays full through a stall, so both sides recover in a burst
+  // instead of waiting out a fresh round trip of mutual silence
+  net.sendAcc = Math.min(net.sendAcc + rawDt, .3);
+  while (net.sendAcc >= 1 / 60) {
+    net.sendAcc -= 1 / 60;
+    if (net.sendTick < net.tick + net.delay + 12)   // bounded lead (~200ms)
+      commitLocal(net.sendTick++);
+  }
   net.acc = Math.min(net.acc + rawDt, .25);
   let steps = 0;
-  while (net.acc >= 1 / 60 && steps < 5) {
-    const k = net.tick, kk = k + NET_DELAY;
-    if (net.localQ[kk] === undefined) {
-      const b = sampleLocalBits();
-      net.localQ[kk] = b;
-      try { net.conn.send({ t: 'in', k: kk, b }); } catch (e) {}
-    }
-    if (net.remoteQ[k] === undefined) break;   // stall until the wire catches up
+  while (steps < 8) {
+    const k = net.tick;
+    if (net.remoteQ[k] === undefined) break;         // the wire is behind
+    // step on the wall-time budget — or beyond it when the peer has run
+    // ahead and their inputs are already banked (catch-up burst)
+    const backlog = net.remoteQ[k + 2] !== undefined;
+    if (net.acc < 1 / 60 && !backlog) break;
+    commitLocal(k);                                  // never stall on ourselves
+    if (net.sendTick <= k) net.sendTick = k + 1;
     applyBits(net.host ? duel.p1 : duel.p2, net.localQ[k]);
     applyBits(net.host ? duel.p2 : duel.p1, net.remoteQ[k]);
     update(1 / 60);                            // the duel branch is deterministic
     if (!net) return;                          // the step may have ended everything
     net.tick++;
-    net.acc -= 1 / 60;
+    net.acc = Math.max(0, net.acc - 1 / 60);
     steps++;
   }
   if (!net) return;
@@ -3839,7 +3879,7 @@ function netFrame(rawDt) {
   }
   if (net.tick % 120 === 0) {                  // sweep stale inputs
     for (const q of [net.localQ, net.remoteQ])
-      for (const key in q) if (+key < net.tick - 10) delete q[key];
+      for (const key in q) if (+key < net.tick - 20) delete q[key];
   }
 }
 
