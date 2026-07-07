@@ -191,6 +191,7 @@
         <div class="controls">
           <div><kbd>← ↑ → ↓ / WASD</kbd> move &nbsp; <kbd>V</kbd> slash &nbsp;
                <kbd>Shift</kbd> dodge-roll &nbsp; <kbd>C</kbd> parry &nbsp;
+               <kbd>R</kbd> 奥義 ultimate &nbsp;
                <kbd>M</kbd> meditate &nbsp; <kbd>E</kbd> talk / trade</div>
           <div style="font-size:12px;opacity:.75;">watch the
             <span style="color:var(--red)">red arcs</span> — every strike is telegraphed.
@@ -683,7 +684,7 @@ addEventListener('keydown', e => {
         if (k === 'v' || k === 'V') net.pend.atk = true;
         if (k === 'b' || k === 'B' || k === 'Shift') net.pend.roll = true;
         if (k === 'n' || k === 'N' || k === 'c' || k === 'C') net.pend.parry = true;
-        if (k === 'l' || k === 'L') net.pend.ult = true;      // brush stances
+        if (k === 'l' || k === 'L') net.pend.ult = true;      // brush maw / 奥義 surge
         if (k === 'u' || k === 'U') net.pend.swap = true;     // cross the wire too
       }
     } else {
@@ -701,6 +702,7 @@ addEventListener('keydown', e => {
     }
   }
   if ((k === 'e' || k === 'E') && !e.repeat) tryInteract();
+  if ((k === 'r' || k === 'R') && !e.repeat) activateUlt();
   if ((k === 'l' || k === 'L') && !e.repeat) toggleUlt();
   if ((k === 'u' || k === 'U') && !e.repeat) toggleBrushSwap();
   if (k === 'Enter') {
@@ -738,6 +740,7 @@ const touchUI = {
     { id: 'atk',   x: () => W - 78,  y: () => H - 96,  r: 36, kanji: '斬' },
     { id: 'roll',  x: () => W - 168, y: () => H - 58,  r: 29, kanji: '転' },
     { id: 'parry', x: () => W - 92,  y: () => H - 184, r: 27, kanji: '弾' },
+    { id: 'ult',   x: () => W - 92,  y: () => H - 262, r: 27, kanji: '奥' },
   ],
   pressed: {},
 };
@@ -758,11 +761,13 @@ function touchAction(id) {
       if (id === 'atk') net.pend.atk = true;
       else if (id === 'roll') net.pend.roll = true;
       else if (id === 'parry') net.pend.parry = true;
+      else if (id === 'ult') net.pend.ult = true;
       return;
     }
     if (id === 'atk') duel.p1.attackBuf = .18;
     else if (id === 'roll') duel.p1.dodgeBuf = .18;
     else if (id === 'parry') duel.p1.parryBuf = .18;
+    else if (id === 'ult') toggleFighterUlt(duel.p1);
     return;
   }
   if (id === 'atk') {
@@ -770,6 +775,7 @@ function touchAction(id) {
     else attackBuf = .18;
   } else if (id === 'roll') dodgeBuf = .18;
   else if (id === 'parry') parryBuf = .18;
+  else if (id === 'ult') activateUlt();
 }
 cv.addEventListener('touchstart', e => {
   touch.enabled = true;
@@ -872,6 +878,7 @@ function drawTouchUI() {
 
 /* ---------- effects: particles, floating text, stains, shake, hit-stop ---------- */
 let particles = [], texts = [], stains = [];
+let ultTrail = [];   // 奥義 blade-tip ribbon points {x,y,t}
 let shakeMag = 0, hitStop = 0;
 
 function shake(m) {
@@ -1081,6 +1088,15 @@ const WEAPONS = {
 // the heavy demon blade cracks them outright
 const WPN_POSTURE = { tetsu: 10, ame: 13, shirasagi: 9, botan: 10,
   kurogane: 15, tsukikage: 10, akaoni: 22, raiko: 11, fudemaru: 0 };
+// 奥義 neon per blade — [primary, secondary] for the surge ribbon and meter
+const WPN_NEON = {
+  tetsu:     ['#00e5ff', '#7c5cff'], ame:       ['#38bdf8', '#22d3ee'],
+  shirasagi: ['#a5f3fc', '#ffffff'], botan:     ['#ff5fa2', '#d946ef'],
+  kurogane:  ['#8b5cf6', '#22d3ee'], tsukikage: ['#818cf8', '#c084fc'],
+  akaoni:    ['#ff3b3b', '#ff9d00'], raiko:     ['#38bdf8', '#00ffff'],
+  fudemaru:  ['#00ffff', '#d946ef'],
+};
+function weaponNeon(id) { return WPN_NEON[id] || ['#00ffff', '#d946ef']; }
 // sword mastery: 5 boss kills while a blade is drawn unlocks its hidden perk
 function masteryOf(id) { return (save.mastery && save.mastery[id]) || 0; }
 function isMastered(id) { return masteryOf(id) >= 5; }
@@ -1325,6 +1341,8 @@ function playerExhausted() { return player.st <= 0.01; }
 
 function startAttack() {
   const wpn = currentWeapon();
+  // 奥義 INK SURGE: the blade overflows — triple reach, double weight
+  const surge = ultActive() && game.ult.kind === 'surge';
   // The Hollow curse: the lungs never fill — every swing is a winded swing
   const weak = playerExhausted() || game.curses.includes('winded');
   player.st = Math.max(0, player.st - wpn.stCost);
@@ -1339,7 +1357,8 @@ function startAttack() {
   const extended = wpn.id === 'shirasagi' && dodgeFlow;
   const charged = wpn.id === 'raiko' && dodgeFlow;
   let dmg = Math.round(wpn.dmg * upgDmgMul() * (weak ? .55 : 1) * (charged ? 1.5 : 1)
-                       * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1));
+                       * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1)
+                       * (surge ? 2 : 1));
   let riposte = false;
   if (player.riposteT > 0) {       // the parry's answer — one empowered stroke
     riposte = true;
@@ -1353,7 +1372,8 @@ function startAttack() {
     active: ATK.active * m * (extended ? 1.7 : 1),
     recover: ATK.recover * m,
     dmg,
-    reach: wpn.reach, arc: wpn.arc * (charged ? 1.35 : 1),
+    reach: wpn.reach * (surge ? 3 : 1),
+    arc: wpn.arc * (charged ? 1.35 : 1) * (surge ? 1.3 : 1),
     landed: false, id: ++player.attackId, dir: player.swingDir,
   };
   player.swingDir *= -1;
@@ -1393,6 +1413,7 @@ function damagePlayer(dmg, ang, heavy) {
   if (player.iT > 0 || player.dodgeInv || game.state !== 'playing') return false;
   if (charmed('oni')) dmg = Math.round(dmg * 1.2);   // the Oni exacts its price
   player.hp -= dmg;
+  addUlt(6);   // pain feeds the 奥義 meter
   game.levelDamageTaken += dmg;
   player.iT = .9; player.flashT = .3;
   playSfx('hurt');
@@ -1436,6 +1457,9 @@ function updatePlayer(dt) {
   dodgeBuf = Math.max(0, dodgeBuf - dt);
   parryBuf = Math.max(0, parryBuf - dt);
   player.dodgeInv = false;
+
+  // 奥義 INK SURGE: while the surge runs the lungs never empty
+  if (ultActive() && game.ult.kind === 'surge') player.st = player.maxSt;
 
   // stamina regen (pauses briefly after any action)
   player.regenDelay = Math.max(0, player.regenDelay - dt);
@@ -1489,6 +1513,8 @@ function updatePlayer(dt) {
         const bladeAng = player.face + swing;
         const tipX = player.x + Math.cos(bladeAng) * a.reach;
         const tipY = player.y + Math.sin(bladeAng) * a.reach;
+        // 奥義: the tip writes a neon ribbon across the frames
+        if (ultActive()) ultTrail.push({ x: tipX, y: tipY, t: game.time });
         // per-weapon swing dressing
         if (wpn.id === 'ame') {
           // falling-rain streaks instead of an arc
@@ -1539,6 +1565,7 @@ function updatePlayer(dt) {
               ? wpn.stagger + (wpn.id === 'akaoni' && isMastered('akaoni') ? .3 : 0)
               : undefined;
             e.hurt(dmg, ang, stagger, pDmg);
+            addUlt(3.5);   // landed strokes fill the 奥義 meter
             // Tsukikage: the light dims; true punishes refund stamina
             if (wpn.id === 'tsukikage') {
               game.desatT = .13;
@@ -1594,6 +1621,7 @@ function updatePlayer(dt) {
       const p = a.t / DODGE.dur;
       const sp = DODGE.speed * (1 - p * .62);
       vx = a.dx * sp; vy = a.dy * sp;
+      if (ultActive()) ultTrail.push({ x: player.x, y: player.y, t: game.time });
       // Koi charm: the fish slips through — 40% wider i-frame window
       const invEnd = DODGE.invEnd * (charmed('koi') ? 1.4 : 1);
       player.dodgeInv = a.t >= DODGE.invStart && a.t <= Math.min(invEnd, DODGE.dur);
@@ -1813,6 +1841,8 @@ class Enemy {
     inkSplat(this.x, this.y);
     shake(3);
     save.stats.kills++;
+    addUlt(8);   // a felled foe feeds the 奥義 meter
+
     save.stats.bladeKills[game.equipped] = (save.stats.bladeKills[game.equipped] || 0) + 1;
     award('firstBlood');
     if (hasBless('reap'))   // the reaper's rhythm — stamina back on every kill
@@ -2613,6 +2643,186 @@ function updateShockwaves(dt) {
   shockwaves = shockwaves.filter(s => !s.dead);
 }
 
+/* ---------- 奥義 player ultimate ----------
+   A meter fills through combat; R unleashes an 8s ultimate state.
+   Extensible: `game.ult.kind` picks the behavior — 'surge' (INK SURGE)
+   grants infinite stamina, ×3 reach, ×2 damage, neon blade ribbons, and
+   opens with a lunging five-hit flurry. PvE only — duels never see it. */
+function ultActive() { return game.ult.active && game.mode !== 'duel'; }
+function ultReady() {
+  return !game.ult.active && game.ult.meter >= game.ult.max && game.mode !== 'duel';
+}
+function addUlt(n) {
+  if (game.ult.active || game.mode === 'duel') return;
+  game.ult.meter = Math.min(game.ult.max, game.ult.meter + n);
+}
+function activateUlt() {
+  if (game.state !== 'playing' || !ultReady() || player.hp <= 0) return;
+  game.ult.active = true; game.ult.t = 0;
+  game.ult.meter = game.ult.max;   // stays full visually; HUD drains it as duration
+  const nz = weaponNeon(game.equipped);
+  setBanner('奥義 — INK SURGE', 1.8);
+  shake(18); freeze(.10);
+  // aura waves — expanding neon rings
+  for (let i = 0; i < 3; i++)
+    particles.push({ kind: 'ring', x: player.x, y: player.y, t: 0, life: .6 + i * .12,
+      color: nz[i % 2], r0: 14, r1: 200 + i * 80, w: 4 });
+  playSfx('parry');
+  player.action = null;   // the surge interrupts whatever the player was doing
+  if (game.ult.kind === 'surge') {   // opening move: a forward dash flurry
+    const dx = Math.cos(player.face), dy = Math.sin(player.face);
+    game.ult.dash = { t: 0, dur: .72, hits: 5, done: 0, dx, dy };
+  }
+}
+function updateUlt(dt) {
+  // the ribbon fades fast — prune dead points even after the surge ends
+  ultTrail = ultTrail.filter(p => game.time - p.t < .22);
+  if (!game.ult.active) return;
+  game.ult.t += dt;
+  const dash = game.ult.dash;
+  if (dash) {
+    dash.t += dt;
+    player.x += dash.dx * 620 * dt;
+    player.y += dash.dy * 620 * dt;
+    clampArena(player);
+    player.iT = Math.max(player.iT, .05);   // untouchable while the flurry runs
+    ultTrail.push({ x: player.x + dash.dx * 22, y: player.y + dash.dy * 22, t: game.time });
+    // five slashes spaced evenly across the lunge
+    while (dash.done < dash.hits &&
+           dash.t >= dash.dur * (dash.done + 1) / (dash.hits + 1)) {
+      ultSlash(dash.done);
+      dash.done++;
+    }
+    if (dash.t >= dash.dur) game.ult.dash = null;
+  }
+  if (game.ult.t >= game.ult.dur) {   // the ink settles
+    game.ult.active = false;
+    game.ult.meter = 0;
+    game.ult.dash = null;
+    setBanner('奥義 fades', 1.0);
+    shake(4);
+  }
+}
+function ultSlash(i) {   // one flurry hit — a scripted arc independent of player.action
+  const wpn = currentWeapon();
+  const nz = weaponNeon(wpn.id);
+  const reach = wpn.reach * 3;
+  const arc = Math.min(TAU, wpn.arc * 1.6);
+  const face = player.face + (i - 2) * .32;   // fan the strokes around the lunge
+  player.face = face;
+  // write the sweep into the ribbon so the trail draws the flurry
+  for (let k = 0; k <= 4; k++) {
+    const a = face - .5 + k * .25;
+    ultTrail.push({ x: player.x + Math.cos(a) * reach,
+                    y: player.y + Math.sin(a) * reach, t: game.time });
+  }
+  slashTrail(player.x, player.y, reach - 8, face - .5, face + .5, nz[1], 6);
+  for (const e of enemies) {
+    if (e.dead || e.state === 'spawn') continue;
+    if (inArc(player.x, player.y, face, reach + 4, arc, e.x, e.y, e.r)) {
+      const ang = Math.atan2(e.y - player.y, e.x - player.x);
+      game.combo++;
+      game.comboPop = .25;
+      e.hurt(Math.round(wpn.dmg * upgDmgMul() * 2.2), ang,
+             wpn.stagger, (WPN_POSTURE[wpn.id] || 8) + 6);
+      sparks(e.x, e.y, ang, nz[0], 8);
+      freeze(.03);
+    }
+  }
+  shake(5);
+  playSfx('whoosh');
+}
+function drawNeonRibbon(trail, nz) {   // layered neon ribbon over a point path
+  if (trail.length < 2) return;
+  const all = trail.map(p =>
+    ({ x: p.x, y: p.y, a: clamp(1 - (game.time - p.t) / .22, 0, 1) }));
+  // split where the path jumps (roll → slash fan) so no seam bridges them
+  const segs = [];
+  let cur = [all[0]];
+  for (let i = 1; i < all.length; i++) {
+    if (Math.hypot(all[i].x - cur[cur.length - 1].x,
+                   all[i].y - cur[cur.length - 1].y) > 70) {
+      if (cur.length > 1) segs.push(cur);
+      cur = [];
+    }
+    cur.push(all[i]);
+  }
+  if (cur.length > 1) segs.push(cur);
+  for (const s of segs) drawRibbonSeg(s, nz);
+}
+function drawRibbonSeg(pts, nz) {
+  // ribbon polygon: offset along local normals, width tapers with age
+  const left = [], right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const l = Math.hypot(dx, dy) || 1;
+    const w = 13 * pts[i].a;
+    left.push({ x: pts[i].x - dy / l * w, y: pts[i].y + dx / l * w });
+    right.push({ x: pts[i].x + dy / l * w, y: pts[i].y - dx / l * w });
+  }
+  const ribbon = () => {
+    ctx.beginPath();
+    ctx.moveTo(left[0].x, left[0].y);
+    for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+    ctx.closePath();
+  };
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.shadowBlur = 35;
+  ctx.shadowColor = nz[0];
+  ctx.globalAlpha = .5; ctx.fillStyle = nz[0];
+  ribbon(); ctx.fill();
+  ctx.shadowColor = nz[1];
+  ctx.globalAlpha = .4; ctx.fillStyle = nz[1];
+  ribbon(); ctx.fill();
+  // razor-sharp solid white core along the centerline
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = .95;
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.restore();
+  // never leak glow state into the rest of the frame
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0;
+}
+// neon roll — dashed motion streaks behind a surging roll, in the blade's temper
+function neonRollStreaks(x, y, dx, dy, r, nz) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.setLineDash([9, 7]);
+  ctx.shadowBlur = 16;
+  for (let i = -1; i <= 1; i++) {   // three dashes fanned across the roll line
+    const px = -dy * i * 8, py = dx * i * 8;
+    ctx.shadowColor = i === 0 ? nz[0] : nz[1];
+    ctx.strokeStyle = i === 0 ? nz[0] : nz[1];
+    ctx.lineWidth = i === 0 ? 3.5 : 2.2;
+    ctx.globalAlpha = i === 0 ? .9 : .6;
+    ctx.beginPath();
+    ctx.moveTo(x - dx * (r + 2) + px, y - dy * (r + 2) + py);
+    ctx.lineTo(x - dx * (r + 26 + Math.abs(i) * 8) + px,
+               y - dy * (r + 26 + Math.abs(i) * 8) + py);
+    ctx.stroke();
+  }
+  // razor white core dash down the middle
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.6; ctx.globalAlpha = .95;
+  ctx.setLineDash([7, 9]);
+  ctx.beginPath();
+  ctx.moveTo(x - dx * (r + 4), y - dy * (r + 4));
+  ctx.lineTo(x - dx * (r + 22), y - dy * (r + 22));
+  ctx.stroke();
+  // restore() alone: the callers' hurt-blink alpha must survive this
+  ctx.restore();
+}
+
 /* ---------- shrine blessings: run-scoped roguelite picks ---------- */
 const BLESSINGS = [
   { id: 'mend',   kanji: '癒', name: 'Mending Step',    desc: 'perfect dodges restore 6 health' },
@@ -3107,7 +3317,9 @@ function updateFighterAI(f, dt) {
   const d = dist(f.x, f.y, foe.x, foe.y);
   const ang = Math.atan2(foe.y - f.y, foe.x - f.x);
   const wpn = WEAPONS[f.blade];
-  const myReach = wpn.reach * (duelMut().giant ? 1.5 : 1);
+  const myReach = wpn.reach * (duelMut().giant ? 1.5 : 1) * (fighterSurged(f) ? 3 : 1);
+  // a full 奥義 bar is spent the moment the foe is in striking distance
+  if (!fighterSurged(f) && f.surgeMeter >= FSURGE.max && d < 300) activateFighterSurge(f);
 
   /* --- reads: watch the human's new actions --- */
   const fa = foe.action;
@@ -3219,6 +3431,7 @@ function makeFighter(name, blade, x, y, face, hue, controls) {
     lastDodgeStart: -99, attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
     riposteT: 0, staggerT: 0, rolls: 0, ai: null,
     ultMode: false, brushSwap: false, meditating: false,
+    surge: 0, surgeMeter: 0, ultTrail: [],   // 奥義 — per-fighter ink surge
     wins: 0, foe: null, hitByAtk: 0, spawnX: x, spawnY: y, spawnFace: face,
   };
 }
@@ -3226,10 +3439,32 @@ function duelMut() { return (duel && duel.mut) || {}; }
 /* the brush in the ring: no stamina, no startup, no parry can turn it —
    only i-frames save the victim. Tap burns a cone; roll-tap sends the
    bolt to find them anywhere. Deliberately a cheat; the seal is the gate. */
+/* --- 奥義 in the ring: per-fighter surge, deterministic for lockstep ---
+   The meter fills from blood given and taken; L (P1) / K (P2) — the same
+   keys that flip the brush stances — unleash it on a plain blade. The
+   'surge' mutator pins it on for the whole match.                        */
+const FSURGE = { dur: 6, max: 100 };
+function fighterSurged(f) { return f.surge > 0; }
+function addFighterUlt(f, n) {
+  if (fighterSurged(f) || duelMut().surge || WEAPONS[f.blade].admin) return;
+  f.surgeMeter = Math.min(FSURGE.max, f.surgeMeter + n);
+}
+function activateFighterSurge(f) {
+  if (fighterSurged(f) || f.surgeMeter < FSURGE.max) return;
+  f.surgeMeter = 0;
+  f.surge = FSURGE.dur;
+  const nz = weaponNeon(f.blade);
+  addText(f.x, f.y - 34, '奥義 — INK SURGE', nz[0], 15);
+  for (let i = 0; i < 3; i++)
+    particles.push({ kind: 'ring', x: f.x, y: f.y, t: 0, life: .5 + i * .1,
+      color: nz[i % 2], r0: 12, r1: 150 + i * 60, w: 3.5 });
+  shake(10); freeze(.08);
+  playSfx('parry');
+}
 // per-fighter brush stances — replicated through the lockstep pipeline
 // online, so both simulations flip them on the same tick
 function toggleFighterUlt(f) {
-  if (!WEAPONS[f.blade].admin) return;
+  if (!WEAPONS[f.blade].admin) { activateFighterSurge(f); return; }   // plain blades: the 奥義 surge
   f.ultMode = !f.ultMode;
   addText(f.x, f.y - 34, f.ultMode ? '滅 ULTIMATE UNBOUND' : 'ultimate sealed',
           f.ultMode ? '#7a6cc0' : 'rgba(43,35,32,.6)', 14);
@@ -3347,11 +3582,12 @@ function startFighterAttack(f) {
   const wpn = WEAPONS[f.blade];
   if (wpn.admin) { fighterBrushCast(f); return; }
   const mut = duelMut();
+  const surged = fighterSurged(f);
   const weak = f.st <= .01;
-  if (!mut.nostam) f.st = Math.max(0, f.st - wpn.stCost);
+  if (!mut.nostam && !surged) f.st = Math.max(0, f.st - wpn.stCost);
   f.regenDelay = .6;
   const m = (weak ? 1.65 : 1) * wpn.spdMul;
-  let dmg = Math.round(wpn.dmg * 1.6 * (weak ? .55 : 1));
+  let dmg = Math.round(wpn.dmg * 1.6 * (weak ? .55 : 1) * (surged ? 2 : 1));
   let riposte = false;
   if (f.riposteT > 0) {
     riposte = true; f.riposteT = 0;
@@ -3362,14 +3598,15 @@ function startFighterAttack(f) {
     type: 'attack', t: 0, weak, riposte,
     startup: ATK.startup * m, active: ATK.active * m, recover: ATK.recover * m,
     dmg,
-    reach: wpn.reach * (mut.giant ? 1.5 : 1), arc: wpn.arc * (mut.giant ? 1.15 : 1),
+    reach: wpn.reach * (mut.giant ? 1.5 : 1) * (surged ? 3 : 1),
+    arc: wpn.arc * (mut.giant ? 1.15 : 1) * (surged ? 1.3 : 1),
     id: ++f.attackId, dir: f.swingDir, clashed: false, dodgeAwarded: false,
   };
   f.swingDir *= -1;
   playSfx('whoosh');
 }
 function startFighterParry(f) {
-  const cost = duelMut().nostam ? 0 : PARRY.cost;
+  const cost = (duelMut().nostam || fighterSurged(f)) ? 0 : PARRY.cost;
   if (f.st < cost) { addText(f.x, f.y - 24, 'exhausted!', RED, 13); return; }
   f.st = Math.max(0, f.st - cost);
   f.regenDelay = .5;
@@ -3380,8 +3617,8 @@ function fighterParryActive(f) {
   return !!(a && a.type === 'parry' && a.t <= PARRY.active);
 }
 function startFighterDodge(f, mx, my) {
-  if (f.st < 10) { addText(f.x, f.y - 24, 'exhausted!', RED, 13); return; }
-  if (!duelMut().nostam) f.st = Math.max(0, f.st - DODGE.cost);
+  if (f.st < 10 && !fighterSurged(f)) { addText(f.x, f.y - 24, 'exhausted!', RED, 13); return; }
+  if (!duelMut().nostam && !fighterSurged(f)) f.st = Math.max(0, f.st - DODGE.cost);
   f.rolls++;
   f.regenDelay = .6;
   let dx = mx, dy = my;
@@ -3396,6 +3633,7 @@ function startFighterDodge(f, mx, my) {
 function damageFighter(f, dmg, ang) {
   if (f.iT > 0 || f.dodgeInv) return;
   f.hp -= dmg;
+  addFighterUlt(f, dmg * 1.2);   // pain feeds the 奥義 meter
   f.iT = .9; f.flashT = .3;
   playSfx('hurt');
   f.kbx += Math.cos(ang) * 300; f.kby += Math.sin(ang) * 300;
@@ -3422,6 +3660,7 @@ function resetDuelRound() {
     f.hp = f.maxHp; f.st = f.maxSt;
     f.action = null; f.iT = 0; f.kbx = f.kby = 0;
     f.attackBuf = f.dodgeBuf = 0; f.dodgeInv = false; f.hitByAtk = 0;
+    f.surge = 0; f.ultTrail = [];   // a fresh round cuts the surge; the meter keeps
   }
   setBanner('— ROUND ' + duel.round + ' —', 1.6);
 }
@@ -3520,6 +3759,13 @@ function updateFighter(f, dt) {
   f.regenDelay = Math.max(0, f.regenDelay - dt);
   if (!f.action && f.regenDelay <= 0)
     f.st = Math.min(f.maxSt, f.st + 26 * dt);
+  // 奥義 surge: the eternal mutator pins it on; otherwise it burns down
+  if (duelMut().surge) f.surge = 1;
+  else if (f.surge > 0) {
+    f.surge = Math.max(0, f.surge - dt);
+    if (f.surge === 0) addText(f.x, f.y - 30, '奥義 fades', 'rgba(43,35,32,.6)', 12);
+  }
+  if (fighterSurged(f)) f.st = f.maxSt;   // the surge never tires
   // the AI duelist writes its own inputs each frame
   if (f.ai) updateFighterAI(f, dt);
   const c = f.controls;
@@ -3564,8 +3810,12 @@ function updateFighter(f, dt) {
       if (a.t >= activeStart && a.t < activeEnd) {
         const p = (a.t - activeStart) / a.active;
         const bladeAng = f.face + lerp(-1.15, 1.15, p) * a.dir;
+        const surged = fighterSurged(f);
+        if (surged)
+          f.ultTrail.push({ x: f.x + Math.cos(bladeAng) * a.reach,
+                            y: f.y + Math.sin(bladeAng) * a.reach, t: game.time });
         slashTrail(f.x, f.y, a.reach - 6, bladeAng - .35 * a.dir, bladeAng + .1 * a.dir,
-          'rgba(43,35,32,.6)', 5);
+          surged ? weaponNeon(f.blade)[1] : 'rgba(43,35,32,.6)', 5);
         const foe = f.foe, fa = foe.action;
         // parry beats the blade: a clash-worthy swing turned aside instead
         if (!a.clashed && fighterParryActive(foe) &&
@@ -3607,10 +3857,12 @@ function updateFighter(f, dt) {
             if (!a.dodgeAwarded) {
               a.dodgeAwarded = true;
               addText(foe.x, foe.y - 26, 'perfect dodge!', GOLD, 14);
+              addFighterUlt(foe, 12);   // a clean read feeds the 奥義
             }
           } else if (foe.iT <= 0) {
             foe.hitByAtk = a.id;
             damageFighter(foe, a.dmg, Math.atan2(foe.y - f.y, foe.x - f.x));
+            addFighterUlt(f, a.dmg * .8);   // drawn blood feeds the attacker's
           }
         }
         // bamboo in the way gets cut down
@@ -3633,6 +3885,7 @@ function updateFighter(f, dt) {
       const p = a.t / DODGE.dur;
       const sp = DODGE.speed * (1 - p * .62);
       vx = a.dx * sp; vy = a.dy * sp;
+      if (fighterSurged(f)) f.ultTrail.push({ x: f.x, y: f.y, t: game.time });
       f.dodgeInv = a.t >= DODGE.invStart && a.t <= DODGE.invEnd;
       if (a.t >= DODGE.dur) { f.action = null; f.dodgeRecoverT = DODGE.recover; }
     } else if (a.type === 'parry') {
@@ -3651,12 +3904,30 @@ function drawFighter(f) {
   if (f.iT > 0 && Math.sin(game.time * 40) > 0) ctx.globalAlpha = .45;
   const rolling = f.action && f.action.type === 'dodge';
   if (rolling) {
-    ctx.strokeStyle = 'rgba(43,35,32,.3)'; ctx.lineWidth = 2;
-    for (let i = 1; i <= 3; i++) {
-      ctx.beginPath();
-      ctx.arc(f.x - f.action.dx * i * 9, f.y - f.action.dy * i * 9, f.r - i * 2, 0, TAU);
-      ctx.stroke();
+    if (fighterSurged(f)) {
+      neonRollStreaks(f.x, f.y, f.action.dx, f.action.dy, f.r, weaponNeon(f.blade));
+    } else {
+      ctx.strokeStyle = 'rgba(43,35,32,.3)'; ctx.lineWidth = 2;
+      for (let i = 1; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.arc(f.x - f.action.dx * i * 9, f.y - f.action.dy * i * 9, f.r - i * 2, 0, TAU);
+        ctx.stroke();
+      }
     }
+  }
+  // 奥義 aura — a slow-turning neon ring the foe can read at a glance
+  if (fighterSurged(f)) {
+    const nz = weaponNeon(f.blade);
+    ctx.save();
+    ctx.shadowBlur = 10; ctx.shadowColor = nz[0];
+    ctx.strokeStyle = nz[0];
+    ctx.globalAlpha = .5 + .2 * Math.sin(game.time * 6);
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 7]);
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r + 8, game.time * 1.5, game.time * 1.5 + TAU - .6);
+    ctx.stroke();
+    ctx.restore();
   }
   ctx.fillStyle = f.flashT > 0 ? REDHOT : CREAM;
   ctx.strokeStyle = INK; ctx.lineWidth = 3.5;
@@ -3756,11 +4027,30 @@ function drawDuelHUD() {
     ctx.fillStyle = '#857b6c';
     ctx.fillRect(x0 + 1, 48, (bw - 2) * clamp(f.st / f.maxSt, 0, 1), bh - 2);
     const w = WEAPONS[f.blade];
+    // 奥 surge bar — a full bar begs for the key; an active surge drains
+    if (!w.admin) {
+      const nz = weaponNeon(f.blade);
+      const sFrac = fighterSurged(f)
+        ? (duelMut().surge ? 1 : clamp(f.surge / FSURGE.dur, 0, 1))
+        : clamp(f.surgeMeter / FSURGE.max, 0, 1);
+      ctx.strokeRect(x0, 68, bw, 7);
+      ctx.fillStyle = 'rgba(43,35,32,.12)'; ctx.fillRect(x0, 68, bw, 7);
+      ctx.save();
+      if (fighterSurged(f) || sFrac >= 1) {
+        ctx.shadowBlur = 8 + 4 * Math.sin(game.time * 8);
+        ctx.shadowColor = nz[0];
+      }
+      ctx.fillStyle = nz[0];
+      ctx.fillRect(x0 + 1, 69, (bw - 2) * sFrac, 5);
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
     ctx.font = 'italic 12px Georgia,serif';
     // the brush is never allowed to masquerade — admin reads in red
     ctx.fillStyle = w.admin ? RED : INK;
     ctx.fillText(`${w.kanji} ${w.name}${w.admin ? ' · ADMIN' : ''}` +
-      `${f.ultMode ? ' · 滅' : ''}${f.brushSwap ? ' · 雷tap' : ''}`, x0, 70);
+      `${f.ultMode ? ' · 滅' : ''}${f.brushSwap ? ' · 雷tap' : ''}` +
+      `${fighterSurged(f) && !w.admin ? ' · 奥義' : ''}`, x0, w.admin ? 70 : 87);
   }
   ctx.font = '20px Georgia,serif'; ctx.textAlign = 'center'; ctx.fillStyle = INK;
   ctx.fillText('決闘 ROUND ' + duel.round, W / 2, 26);
@@ -3780,8 +4070,8 @@ function drawDuelHUD() {
   if (game.time < 6) {
     ctx.font = 'italic 11px Georgia,serif'; ctx.fillStyle = 'rgba(43,35,32,.55)';
     ctx.fillText(duel.p2.ai || duel.p2.netCtl
-      ? 'WASD move · V slash · B roll · N parry · M meditate'
-      : 'P1: WASD · V slash · B roll · N parry · M meditate      P2: arrows · O slash · P roll · I parry · , meditate',
+      ? 'WASD move · V slash · B roll · N parry · M meditate · L 奥義 when the bar burns'
+      : 'P1: WASD · V slash · B roll · N parry · M meditate · L 奥義      P2: arrows · O slash · P roll · I parry · , meditate · K 奥義',
       W / 2, H - 20);
     if (WEAPONS[duel.p1.blade].admin || WEAPONS[duel.p2.blade].admin) {
       ctx.fillStyle = RED;
@@ -3791,13 +4081,15 @@ function drawDuelHUD() {
     }
   }
   // mutators in play
-  if (duel.mut && (duel.mut.sudden || duel.mut.nostam || duel.mut.giant || duel.mut.mirror)) {
+  if (duel.mut && (duel.mut.sudden || duel.mut.nostam || duel.mut.giant ||
+                   duel.mut.mirror || duel.mut.surge)) {
     ctx.font = 'italic 11px Georgia,serif'; ctx.fillStyle = RED;
     const tags = [];
     if (duel.mut.sudden) tags.push('一撃');
     if (duel.mut.nostam) tags.push('無尽');
     if (duel.mut.giant) tags.push('大刀');
     if (duel.mut.mirror) tags.push('鏡');
+    if (duel.mut.surge) tags.push('奥義');
     ctx.fillText(tags.join(' · '), W / 2, 70);
   }
 }
@@ -3815,6 +4107,19 @@ function netStatus(msg, bad) {
   const el = document.getElementById('netMsg');
   if (el) { el.textContent = msg || ''; el.style.color = bad ? 'var(--red)' : 'var(--gold)'; }
 }
+/* STUN discovers each side's public address so ordinary home NATs can
+   hole-punch a direct path; two tabs on one machine never needed it, which
+   is why local tests pass while two houses stall. Strict/symmetric NATs
+   additionally need TURN — a relay of last resort — and no reliable
+   anonymous TURN exists (the old openrelay pool is dead: probed, silent).
+   For those networks, create free credentials (metered.ca / Cloudflare,
+   minutes) and uncomment the TURN entry below.                            */
+const ICE_CONFIG = { iceServers: [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302',
+           'stun:stun.relay.metered.ca:80'] },
+  // { urls: 'turn:global.relay.metered.ca:443?transport=tcp',
+  //   username: 'YOUR_METERED_USERNAME', credential: 'YOUR_METERED_CREDENTIAL' },
+]};
 function loadPeerJS(cb) {
   if (window.Peer) return cb(null);
   netStatus('reaching for the wire…');
@@ -3844,21 +4149,41 @@ function netDropped(msg) {
 }
 function wireConn(conn) {
   net.conn = conn;
+  // a blocked ICE path fires NO event — the silent stall is the only symptom,
+  // so a timer has to speak for it
+  const stallT = setTimeout(() => {
+    if (!net || net.conn !== conn || conn.open) return;
+    if (net.host) {   // keep the room alive; only this attempt died
+      conn.abandoned = true;   // its close event must not sever the room
+      try { conn.close(); } catch (e) {}
+      net.conn = null;
+      netStatus('a challenger reached out but the wire could not cross — the room stays open', true);
+    } else {
+      netDropped('found the room, but no path crossed the NATs — try a phone hotspot on one side');
+    }
+  }, 15000);
   conn.on('open', () => {
+    clearTimeout(stallT);
     if (!net) return;
     if (net.host) netStatus('challenger connected — crossing blades…');
     else conn.send({ t: 'join', blade: menuSel.p1Blade });
   });
   conn.on('data', onNetData);
-  conn.on('close', () => netDropped('the other side left'));
-  conn.on('error', () => netDropped());
+  conn.on('close', () => {
+    clearTimeout(stallT);
+    if (!conn.abandoned) netDropped('the other side left');
+  });
+  conn.on('error', () => {
+    clearTimeout(stallT);
+    if (!conn.abandoned) netDropped();
+  });
 }
 function hostDuel() {
   if (net) netCleanup();
   loadPeerJS(err => {
     if (err) return netStatus(err, true);
     const code = Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(0, 5) || 'inkbl';
-    const peer = new window.Peer('inkblade-' + code);
+    const peer = new window.Peer('inkblade-' + code, { config: ICE_CONFIG });
     net = { peer, host: true, started: false, code };
     peer.on('open', () =>
       netStatus('room code: ' + code.toUpperCase() + ' — send it to your challenger and wait'));
@@ -3872,7 +4197,7 @@ function joinDuel(code) {
   if (!code) return netStatus('enter the host’s code first', true);
   loadPeerJS(err => {
     if (err) return netStatus(err, true);
-    const peer = new window.Peer();
+    const peer = new window.Peer({ config: ICE_CONFIG });
     net = { peer, host: false, started: false };
     netStatus('seeking the host…');
     // reliable:false → PeerJS opens the channel UNORDERED (still retransmitting).
@@ -3918,7 +4243,8 @@ function onNetData(d) {
 function startOnlineDuel(hostBlade, guestBlade, mut, delay) {
   menuSel.duelOpp = 'online';
   menuSel.duelArena = 0;                    // deterministic ground, no hazards
-  menuSel.mut = Object.assign({ sudden: false, nostam: false, giant: false, mirror: false }, mut);
+  menuSel.mut = Object.assign({ sudden: false, nostam: false, giant: false,
+                                mirror: false, surge: false }, mut);
   menuSel.p1Blade = WEAPONS[hostBlade] ? hostBlade : 'tetsu';
   menuSel.p2Blade = WEAPONS[guestBlade] ? guestBlade : 'tetsu';
   startRun('duel');
@@ -3971,7 +4297,7 @@ function applyBits(f, b) {
   if (b & 16) f.attackBuf = .1;
   if (b & 32) f.dodgeBuf = .1;
   if (b & 64) f.parryBuf = .1;
-  if (b & 128) toggleFighterUlt(f);    // no-ops unless the blade is the brush
+  if (b & 128) toggleFighterUlt(f);    // brush maw — or the 奥義 surge on a plain blade
   if (b & 256) toggleFighterSwap(f);
 }
 function commitLocal(k) {   // sample now, remember, and put it on the wire
@@ -4041,6 +4367,8 @@ const game = {
   blessings: [], curses: [],        // run-scoped roguelite layers
   levelDamageTaken: 0,              // for the Untouched achievement
   omamoriUsed: false,               // the charm shatters once per run
+  // 奥義 player ultimate — `kind` picks the behavior ('surge' = INK SURGE)
+  ult: { meter: 0, max: 100, active: false, t: 0, dur: 8, kind: 'surge', dash: null },
 };
 function addHonor(n, x, y, label) {
   game.honor += n;
@@ -4217,7 +4545,7 @@ const CURSES = [
 const menuSel = { mode: 'level', diff: 1, level: 1, chaos: false,
                   p1Blade: 'tetsu', p2Blade: 'tetsu', curses: [],
                   duelOpp: 'human', duelArena: 0,
-                  mut: { sudden: false, nostam: false, giant: false, mirror: false } };
+                  mut: { sudden: false, nostam: false, giant: false, mirror: false, surge: false } };
 
 function beginRun() {
   if (menuSel.mode === 'duel' && menuSel.duelOpp === 'online') {
@@ -4252,8 +4580,10 @@ function startRun(mode) {
   game.ameStacks = 0; game.desatT = 0; game.lastHurtAt = -99;
   game.zoom = 1; game.zoomTarget = 1; game.flashT = 0;
   game.victory = false; game.lastBossDeath = null;
+  game.ult = { meter: 0, max: 100, active: false, t: 0, dur: 8, kind: 'surge', dash: null };
   adapt.reset();
   particles = []; texts = []; stains = []; projectiles = []; shockwaves = [];
+  ultTrail = [];
   blackholes = []; orbs = [];
   portal = null; merchant = null; transition = null; storm = null; duel = null;
   shrine = null;
@@ -4887,7 +5217,8 @@ function renderMenu() {
     const mutRow = document.getElementById('duelMutRow');
     mutRow.innerHTML = '';
     const muts = [['sudden', '一撃 sudden death'], ['nostam', '無尽 no stamina'],
-                  ['giant', '大刀 giant blades'], ['mirror', '鏡 mirror match']];
+                  ['giant', '大刀 giant blades'], ['mirror', '鏡 mirror match'],
+                  ['surge', '奥義 eternal surge']];
     for (const [id, label] of muts) {
       const b = document.createElement('button');
       b.className = 'curseBtn' + (menuSel.mut[id] ? ' sel' : '');
@@ -5234,6 +5565,8 @@ function update(dt) {
   if (game.mode === 'duel') {
     game.time += dt;
     game.bannerT = Math.max(0, game.bannerT - dt);
+    for (const f of [duel.p1, duel.p2])   // ribbons fade even through the pause
+      f.ultTrail = f.ultTrail.filter(p => game.time - p.t < .22);
     if (duel.pauseT > 0) {
       duel.pauseT -= dt;
       updateEffects(dt);
@@ -5279,6 +5612,7 @@ function update(dt) {
   meleeTokens.update(dt); rangedTokens.update(dt);
 
   updatePlayer(dt);
+  updateUlt(dt);
   for (const e of enemies) e.update(dt);
   enemies = enemies.filter(e => !e.dead);
   separateEnemies();
@@ -5615,14 +5949,18 @@ function drawPlayer() {
   drawShadow(p.x, p.y, p.r);
   // hurt-iframe blink
   if (p.iT > 0 && Math.sin(game.time * 40) > 0) ctx.globalAlpha = .45;
-  // roll: squash + motion streaks
+  // roll: squash + motion streaks — neon dashes while the 奥義 burns
   const rolling = p.action && p.action.type === 'dodge';
   if (rolling) {
-    ctx.strokeStyle = 'rgba(43,35,32,.3)'; ctx.lineWidth = 2;
-    for (let i = 1; i <= 3; i++) {
-      ctx.beginPath();
-      ctx.arc(p.x - p.action.dx * i * 9, p.y - p.action.dy * i * 9, p.r - i * 2, 0, TAU);
-      ctx.stroke();
+    if (ultActive()) {
+      neonRollStreaks(p.x, p.y, p.action.dx, p.action.dy, p.r, weaponNeon(game.equipped));
+    } else {
+      ctx.strokeStyle = 'rgba(43,35,32,.3)'; ctx.lineWidth = 2;
+      for (let i = 1; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.arc(p.x - p.action.dx * i * 9, p.y - p.action.dy * i * 9, p.r - i * 2, 0, TAU);
+        ctx.stroke();
+      }
     }
   }
   // body
@@ -5923,6 +6261,45 @@ function drawHUD() {
     ctx.fillStyle = RED; ctx.font = 'italic 12px Georgia,serif';
     ctx.fillText('winded — blade weakened', bx + 20 + stw + 10, sy + bh / 2);
   }
+  // 奥 ultimate meter — neon; drains as a duration bar while the surge runs
+  if (game.mode !== 'duel') {
+    const uy = by + 42, uw = 190;
+    const nz = weaponNeon(game.equipped);
+    ctx.fillStyle = INK; ctx.font = '15px Georgia,serif';
+    ctx.fillText('奥', bx - 2, uy + bh / 2);
+    ctx.strokeStyle = INK; ctx.lineWidth = 2;
+    ctx.strokeRect(bx + 20, uy, uw, bh);
+    ctx.fillStyle = 'rgba(43,35,32,.12)';
+    ctx.fillRect(bx + 20, uy, uw, bh);
+    if (game.ult.active) {
+      const frac = clamp(1 - game.ult.t / game.ult.dur, 0, 1);
+      ctx.save();
+      ctx.shadowBlur = 12; ctx.shadowColor = nz[0];
+      ctx.fillStyle = nz[0];
+      ctx.fillRect(bx + 21, uy + 1, (uw - 2) * frac, bh - 2);
+      ctx.restore();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = nz[1]; ctx.font = 'italic 12px Georgia,serif';
+      ctx.fillText('奥義 — INK SURGE', bx + 20 + uw + 10, uy + bh / 2);
+    } else {
+      const frac = clamp(game.ult.meter / game.ult.max, 0, 1);
+      const full = frac >= 1;
+      ctx.save();
+      if (full) {   // full meter pulses, begging for the R key
+        ctx.shadowBlur = 10 + 6 * Math.sin(game.time * 8);
+        ctx.shadowColor = nz[0];
+        ctx.globalAlpha = .75 + .25 * Math.sin(game.time * 8);
+      } else ctx.globalAlpha = .85;
+      ctx.fillStyle = nz[0];
+      ctx.fillRect(bx + 21, uy + 1, (uw - 2) * frac, bh - 2);
+      ctx.restore();
+      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+      if (full) {
+        ctx.fillStyle = INK; ctx.font = 'italic 12px Georgia,serif';
+        ctx.fillText('press R — 奥義', bx + 20 + uw + 10, uy + bh / 2);
+      }
+    }
+  }
   // mode · wave · difficulty — top centre
   ctx.font = '20px Georgia,serif'; ctx.textAlign = 'center';
   ctx.fillStyle = game.mode === 'infinite' ? '#4a3a6b' : INK;
@@ -6222,6 +6599,11 @@ function draw() {
     }
     ctx.globalAlpha = 1;
   }
+  // 奥義 neon ribbon — glows above the ink, beneath the words
+  if (game.mode === 'duel' && duel) {
+    drawNeonRibbon(duel.p1.ultTrail, weaponNeon(duel.p1.blade));
+    drawNeonRibbon(duel.p2.ultTrail, weaponNeon(duel.p2.blade));
+  } else if (ultTrail.length > 1) drawNeonRibbon(ultTrail, weaponNeon(game.equipped));
   // floating text
   for (const t of texts) {
     ctx.globalAlpha = 1 - (t.t / t.life) ** 2;
