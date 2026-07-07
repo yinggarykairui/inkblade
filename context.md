@@ -67,7 +67,12 @@ Files in `/Users/kairuki/Desktop/2DGame/`:
 - **1v1 Duel** — local human, **AI duelists** (Ox/Fox/Stone), **Tournament**
   (4 escalating gates → persistent gold headband cosmetic), or **Online**.
   ALL eight blades are selectable in duels regardless of ownership (duels
-  are progression-free); only Fudemaru is barred.
+  are progression-free). Fudemaru joins the blade rows only while the seal
+  is open (`game.adminUnlocked`) and fights through `fighterBrushCast` —
+  instant unparryable casts (tap = 火 cone 50dmg, roll-tap = 雷 seeking
+  bolt 25dmg + stagger), evadable only by i-frames, 0.55s recovery, and
+  the duel HUD labels it ADMIN in red. Deterministic, so it works online
+  (the opponent doesn't need the seal for the sim to agree).
   Any of the 5 arenas with live hazards; mutators: sudden death, no stamina,
   giant blades, mirror match.
 - **Training Yard** (`startRun('training')`) — rebuilding dummy with rolling

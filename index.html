@@ -3199,8 +3199,57 @@ function makeFighter(name, blade, x, y, face, hue, controls) {
   };
 }
 function duelMut() { return (duel && duel.mut) || {}; }
+/* the brush in the ring: no stamina, no startup, no parry can turn it —
+   only i-frames save the victim. Tap burns a cone; roll-tap sends the
+   bolt to find them anywhere. Deliberately a cheat; the seal is the gate. */
+function fighterBrushCast(f) {
+  const foe = f.foe;
+  const sinceDodge = game.time - f.lastDodgeStart;
+  const flow = sinceDodge > 0 && sinceDodge < DODGE.dur + .5;
+  const ang = Math.atan2(foe.y - f.y, foe.x - f.x);
+  slashTrail(f.x, f.y, 62, f.face - .9, f.face + .9, 'rgba(43,35,32,.65)', 9);
+  const glyph = (ch, color) => particles.push({ kind: 'glyph', ch, color,
+    x: f.x + Math.cos(f.face) * 80, y: f.y + Math.sin(f.face) * 80,
+    vx: 0, vy: -12, t: 0, life: 1.1, size: 46, misted: false });
+  if (flow) {
+    // 雷 — the bolt crosses the whole ring
+    glyph('雷', '#5b78c9');
+    boltFX(f.x, f.y, foe.x, foe.y);
+    playSfx('bolt');
+    if (foe.dodgeInv) addText(foe.x, foe.y - 26, 'perfect dodge!', GOLD, 14);
+    else if (foe.iT <= 0) {
+      damageFighter(foe, 25, ang);
+      foe.staggerT = Math.max(foe.staggerT, .6);
+    }
+    freeze(.05); shake(4);
+  } else {
+    // 火 — a cone of flame; roll through it or burn
+    glyph('火', RED);
+    for (let i = 0; i < 22; i++) {
+      const a = f.face + rand(-.75, .75), d = rand(20, 165);
+      particles.push({ kind: 'dot',
+        x: f.x + Math.cos(a) * d, y: f.y + Math.sin(a) * d,
+        vx: Math.cos(a) * rand(40, 120), vy: Math.sin(a) * rand(40, 120) - 30,
+        t: 0, life: rand(.3, .6),
+        color: Math.random() < .6 ? 'rgba(181,52,42,.8)' : 'rgba(43,35,32,.6)',
+        rad: rand(2, 5) });
+    }
+    playSfx('rumble');
+    if (inArc(f.x, f.y, f.face, 170 + foe.r, 1.5, foe.x, foe.y, foe.r)) {
+      if (foe.dodgeInv) addText(foe.x, foe.y - 26, 'perfect dodge!', GOLD, 14);
+      else if (foe.iT <= 0) damageFighter(foe, 50, ang);
+    }
+    freeze(.06); shake(5);
+  }
+  // a beat of recovery so the brush cannot be mashed every frame
+  f.action = { type: 'attack', t: 0, startup: 0, active: 0, recover: .55,
+    dmg: 0, reach: 0, arc: 0, id: ++f.attackId, dir: f.swingDir,
+    clashed: true, dodgeAwarded: false };
+  f.regenDelay = .3;
+}
 function startFighterAttack(f) {
   const wpn = WEAPONS[f.blade];
+  if (wpn.admin) { fighterBrushCast(f); return; }
   const mut = duelMut();
   const weak = f.st <= .01;
   if (!mut.nostam) f.st = Math.max(0, f.st - wpn.stCost);
@@ -3583,8 +3632,9 @@ function drawDuelHUD() {
     ctx.fillRect(x0 + 1, 48, (bw - 2) * clamp(f.st / f.maxSt, 0, 1), bh - 2);
     const w = WEAPONS[f.blade];
     ctx.font = 'italic 12px Georgia,serif';
-    ctx.fillStyle = INK;
-    ctx.fillText(`${w.kanji} ${w.name}`, x0, 70);
+    // the brush is never allowed to masquerade — admin reads in red
+    ctx.fillStyle = w.admin ? RED : INK;
+    ctx.fillText(`${w.kanji} ${w.name}${w.admin ? ' · ADMIN' : ''}`, x0, 70);
   }
   ctx.font = '20px Georgia,serif'; ctx.textAlign = 'center'; ctx.fillStyle = INK;
   ctx.fillText('決闘 ROUND ' + duel.round, W / 2, 26);
@@ -4621,9 +4671,11 @@ function renderMenu() {
   document.getElementById('duelSetup').style.display = isDuel ? 'block' : 'none';
   if (isDuel) {
     // duels are settled by blades and reads, not progression —
-    // the whole arsenal is open here, owned or not (the brush excepted)
-    if (!WEAPONS[menuSel.p1Blade] || WEAPONS[menuSel.p1Blade].admin) menuSel.p1Blade = 'tetsu';
-    if (!WEAPONS[menuSel.p2Blade] || WEAPONS[menuSel.p2Blade].admin) menuSel.p2Blade = 'tetsu';
+    // the whole arsenal is open here, owned or not; the brush only
+    // enters the ring for those who have spoken the seal
+    const bladeOk = id => WEAPONS[id] && (!WEAPONS[id].admin || game.adminUnlocked);
+    if (!bladeOk(menuSel.p1Blade)) menuSel.p1Blade = 'tetsu';
+    if (!bladeOk(menuSel.p2Blade)) menuSel.p2Blade = 'tetsu';
     // opponent select — a second human, three temperaments, or the bracket
     const oppRow = document.getElementById('duelOppRow');
     oppRow.innerHTML = '';
@@ -4668,16 +4720,20 @@ function renderMenu() {
     const showP2 = menuSel.duelOpp === 'human' && !menuSel.mut.mirror;
     document.getElementById('p2BladeLabel').style.display = showP2 ? '' : 'none';
     document.getElementById('p2BladeRow').style.display = showP2 ? 'flex' : 'none';
+    const duelBlades = game.adminUnlocked ? WEAPON_ORDER.concat(['fudemaru']) : WEAPON_ORDER;
     for (const [rowId, key] of [['p1BladeRow', 'p1Blade'], ['p2BladeRow', 'p2Blade']]) {
       const row = document.getElementById(rowId);
       row.innerHTML = '';
-      for (const id of WEAPON_ORDER) {
+      for (const id of duelBlades) {
         const w = WEAPONS[id];
         const b = document.createElement('button');
         b.className = 'lvlBtn' + (menuSel[key] === id ? ' sel' : '');
+        if (w.admin) b.style.color = 'var(--red)';
         b.textContent = w.kanji;
-        b.title = `${w.name} — ${w.epithet}` +
-          (save.owned.includes(id) ? '' : ' (duels only until purchased)');
+        b.title = w.admin
+          ? `${w.name} — ADMIN · tap: 火 flame cone · roll-tap: 雷 seeking bolt`
+          : `${w.name} — ${w.epithet}` +
+            (save.owned.includes(id) ? '' : ' (duels only until purchased)');
         b.onclick = () => { menuSel[key] = id; renderMenu(); };
         row.appendChild(b);
       }
