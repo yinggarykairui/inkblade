@@ -66,6 +66,8 @@ Files in `/Users/kairuki/Desktop/2DGame/`:
   lords, deepest stage).
 - **1v1 Duel** — local human, **AI duelists** (Ox/Fox/Stone), **Tournament**
   (4 escalating gates → persistent gold headband cosmetic), or **Online**.
+  ALL eight blades are selectable in duels regardless of ownership (duels
+  are progression-free); only Fudemaru is barred.
   Any of the 5 arenas with live hazards; mutators: sudden death, no stamina,
   giant blades, mirror match.
 - **Training Yard** (`startRun('training')`) — rebuilding dummy with rolling

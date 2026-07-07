@@ -4620,8 +4620,10 @@ function renderMenu() {
   const isDuel = menuSel.mode === 'duel';
   document.getElementById('duelSetup').style.display = isDuel ? 'block' : 'none';
   if (isDuel) {
-    if (!save.owned.includes(menuSel.p1Blade)) menuSel.p1Blade = 'tetsu';
-    if (!save.owned.includes(menuSel.p2Blade)) menuSel.p2Blade = 'tetsu';
+    // duels are settled by blades and reads, not progression —
+    // the whole arsenal is open here, owned or not (the brush excepted)
+    if (!WEAPONS[menuSel.p1Blade] || WEAPONS[menuSel.p1Blade].admin) menuSel.p1Blade = 'tetsu';
+    if (!WEAPONS[menuSel.p2Blade] || WEAPONS[menuSel.p2Blade].admin) menuSel.p2Blade = 'tetsu';
     // opponent select — a second human, three temperaments, or the bracket
     const oppRow = document.getElementById('duelOppRow');
     oppRow.innerHTML = '';
@@ -4669,12 +4671,13 @@ function renderMenu() {
     for (const [rowId, key] of [['p1BladeRow', 'p1Blade'], ['p2BladeRow', 'p2Blade']]) {
       const row = document.getElementById(rowId);
       row.innerHTML = '';
-      for (const id of save.owned) {
+      for (const id of WEAPON_ORDER) {
         const w = WEAPONS[id];
         const b = document.createElement('button');
         b.className = 'lvlBtn' + (menuSel[key] === id ? ' sel' : '');
         b.textContent = w.kanji;
-        b.title = `${w.name} — ${w.epithet}`;
+        b.title = `${w.name} — ${w.epithet}` +
+          (save.owned.includes(id) ? '' : ' (duels only until purchased)');
         b.onclick = () => { menuSel[key] = id; renderMenu(); };
         row.appendChild(b);
       }
