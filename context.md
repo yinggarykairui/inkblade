@@ -71,8 +71,15 @@ Files in `/Users/kairuki/Desktop/2DGame/`:
   is open (`game.adminUnlocked`) and fights through `fighterBrushCast` —
   instant unparryable casts (tap = 火 cone 50dmg, roll-tap = 雷 seeking
   bolt 25dmg + stagger), evadable only by i-frames, 0.55s recovery, and
-  the duel HUD labels it ADMIN in red. Deterministic, so it works online
-  (the opponent doesn't need the seal for the sim to agree).
+  the duel HUD labels it ADMIN in red. Brush STANCES are per-fighter
+  (`f.ultMode`/`f.brushSwap`, toggled via `toggleFighterUlt/Swap`): local
+  P1 = L/U, P2 = K/J; online they ride input bits 128/256 so both sims
+  flip on the same tick. Ult taps open a duel-native maw
+  (`updateDuelHoles`): 1.6s pull on the foe (rolls halve it), 60dmg +
+  stagger at collapse, i-frames evade; 0.95s cast recovery; maws clear
+  on round reset. All deterministic → lockstep-safe online.
+  Input bit map: 1/2/4/8 move · 16 atk · 32 roll · 64 parry ·
+  128 ult · 256 swap · 512 meditate (held).
   Any of the 5 arenas with live hazards; mutators: sudden death, no stamina,
   giant blades, mirror match.
 - **Training Yard** (`startRun('training')`) — rebuilding dummy with rolling
@@ -81,7 +88,11 @@ Files in `/Users/kairuki/Desktop/2DGame/`:
 - **Merchant visit** — browse the stall from the menu.
 
 ### Player kit
-Arrows/WASD move · V slash · Shift roll · **C parry** · E interact · Esc pause.
+Arrows/WASD move · V slash · Shift roll · **C parry** · **M meditate** ·
+E interact · Esc pause.
+- **Meditation** (hold M; duels: P1 M / P2 `,`; online bit 512): rooted and
+  open, but stamina returns 3× faster, even through the post-action regen
+  delay. Gold dashed ring + rising motes + 瞑 glyph.
 - **Parry** (`PARRY` const, `startParry`, `playerParryActive`): 0.13s window,
   0.27s punishable whiff recovery, costs 10 stamina. Success staggers the
   attacker (`getParried`), refunds stamina, adds +25 posture, opens a 1.3s

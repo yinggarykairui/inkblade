@@ -190,7 +190,8 @@
         <div class="sub">five arenas, five bosses — or an endless storm</div>
         <div class="controls">
           <div><kbd>← ↑ → ↓ / WASD</kbd> move &nbsp; <kbd>V</kbd> slash &nbsp;
-               <kbd>Shift</kbd> dodge-roll &nbsp; <kbd>C</kbd> parry &nbsp; <kbd>E</kbd> talk / trade</div>
+               <kbd>Shift</kbd> dodge-roll &nbsp; <kbd>C</kbd> parry &nbsp;
+               <kbd>M</kbd> meditate &nbsp; <kbd>E</kbd> talk / trade</div>
           <div style="font-size:12px;opacity:.75;">watch the
             <span style="color:var(--red)">red arcs</span> — every strike is telegraphed.
             <span style="color:var(--gold)">honor</span> falls only from slain bosses:
@@ -682,6 +683,8 @@ addEventListener('keydown', e => {
         if (k === 'v' || k === 'V') net.pend.atk = true;
         if (k === 'b' || k === 'B' || k === 'Shift') net.pend.roll = true;
         if (k === 'n' || k === 'N' || k === 'c' || k === 'C') net.pend.parry = true;
+        if (k === 'l' || k === 'L') net.pend.ult = true;      // brush stances
+        if (k === 'u' || k === 'U') net.pend.swap = true;     // cross the wire too
       }
     } else {
       if ((k === 'v' || k === 'V') && !e.repeat) duel.p1.attackBuf = .18;
@@ -690,6 +693,11 @@ addEventListener('keydown', e => {
       if ((k === 'o' || k === 'O') && !e.repeat) duel.p2.attackBuf = .18;
       if ((k === 'p' || k === 'P') && !e.repeat) duel.p2.dodgeBuf = .18;
       if ((k === 'i' || k === 'I') && !e.repeat) duel.p2.parryBuf = .18;
+      // local brush stances: P1 on L/U (as in the trial), P2 on K/J
+      if ((k === 'l' || k === 'L') && !e.repeat) toggleFighterUlt(duel.p1);
+      if ((k === 'u' || k === 'U') && !e.repeat) toggleFighterSwap(duel.p1);
+      if ((k === 'k' || k === 'K') && !e.repeat) toggleFighterUlt(duel.p2);
+      if ((k === 'j' || k === 'J') && !e.repeat) toggleFighterSwap(duel.p2);
     }
   }
   if ((k === 'e' || k === 'E') && !e.repeat) tryInteract();
@@ -1450,6 +1458,19 @@ function updatePlayer(dt) {
     if (attackBuf > 0) { attackBuf = 0; startAttack(); }
     else if (parryBuf > 0) { parryBuf = 0; startParry(); }
     else if (dodgeBuf > 0) { dodgeBuf = 0; startDodge(mx, my); }
+  }
+
+  // 瞑 meditation: stand still, breathe — stamina returns three times as
+  // fast, even through the post-action pause, but you are rooted and open
+  player.meditating = !player.action && !!keys.m;
+  if (player.meditating) {
+    mx = 0; my = 0;
+    player.st = Math.min(player.maxSt,
+      player.st + upgRegen() * (hasBless('tempo') ? 1.25 : 1) *
+      (player.regenDelay <= 0 ? 2 : 3) * dt);
+    if (Math.random() < dt * 7)
+      particles.push({ kind: 'dot', x: player.x + rand(-8, 8), y: player.y - player.r,
+        vx: 0, vy: -34, t: 0, life: .8, color: 'rgba(168,132,58,.55)', rad: 1.8 });
   }
 
   // movement
@@ -2876,6 +2897,7 @@ function castSymbol(hold) {
   }
 }
 function toggleUlt() {
+  if (game.mode === 'duel') return;   // duel fighters carry their own toggles
   if (game.equipped !== 'fudemaru' || game.state !== 'playing') return;
   game.ultMode = !game.ultMode;
   if (game.ultMode) {
@@ -2888,6 +2910,7 @@ function toggleUlt() {
   }
 }
 function toggleBrushSwap() {
+  if (game.mode === 'duel') return;   // duel fighters carry their own toggles
   if (game.equipped !== 'fudemaru' || game.state !== 'playing') return;
   game.brushSwap = !game.brushSwap;
   addText(player.x, player.y - 34,
@@ -3195,6 +3218,7 @@ function makeFighter(name, blade, x, y, face, hue, controls) {
     flashT: 0, regenDelay: 0, swingDir: 1, attackId: 0,
     lastDodgeStart: -99, attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
     riposteT: 0, staggerT: 0, rolls: 0, ai: null,
+    ultMode: false, brushSwap: false, meditating: false,
     wins: 0, foe: null, hitByAtk: 0, spawnX: x, spawnY: y, spawnFace: face,
   };
 }
@@ -3202,6 +3226,21 @@ function duelMut() { return (duel && duel.mut) || {}; }
 /* the brush in the ring: no stamina, no startup, no parry can turn it —
    only i-frames save the victim. Tap burns a cone; roll-tap sends the
    bolt to find them anywhere. Deliberately a cheat; the seal is the gate. */
+// per-fighter brush stances — replicated through the lockstep pipeline
+// online, so both simulations flip them on the same tick
+function toggleFighterUlt(f) {
+  if (!WEAPONS[f.blade].admin) return;
+  f.ultMode = !f.ultMode;
+  addText(f.x, f.y - 34, f.ultMode ? '滅 ULTIMATE UNBOUND' : 'ultimate sealed',
+          f.ultMode ? '#7a6cc0' : 'rgba(43,35,32,.6)', 14);
+  if (f.ultMode) shake(3);
+}
+function toggleFighterSwap(f) {
+  if (!WEAPONS[f.blade].admin) return;
+  f.brushSwap = !f.brushSwap;
+  addText(f.x, f.y - 34, f.brushSwap ? '雷 on tap · 火 on roll-tap'
+                                     : '火 on tap · 雷 on roll-tap', '#5b78c9', 13);
+}
 function fighterBrushCast(f) {
   const foe = f.foe;
   const sinceDodge = game.time - f.lastDodgeStart;
@@ -3211,7 +3250,24 @@ function fighterBrushCast(f) {
   const glyph = (ch, color) => particles.push({ kind: 'glyph', ch, color,
     x: f.x + Math.cos(f.face) * 80, y: f.y + Math.sin(f.face) * 80,
     vx: 0, vy: -12, t: 0, life: 1.1, size: 46, misted: false });
-  if (flow) {
+  let recover = .55;
+  if (f.ultMode) {
+    // 滅 — the maw opens in the ring; the growing pull IS the telegraph
+    recover = .95;
+    glyph('滅', '#7a6cc0');
+    const hx = clamp(f.x + Math.cos(f.face) * 180, ARENA.x + 60, ARENA.x + ARENA.w - 60);
+    const hy = clamp(f.y + Math.sin(f.face) * 180, ARENA.y + 60, ARENA.y + ARENA.h - 60);
+    blackholes.push({ x: hx, y: hy, t: 0, dur: 1.6, r: 10, done: false, owner: f });
+    playSfx('rumble');
+    freeze(.05); shake(4);
+    f.action = { type: 'attack', t: 0, startup: 0, active: 0, recover,
+      dmg: 0, reach: 0, arc: 0, id: ++f.attackId, dir: f.swingDir,
+      clashed: true, dodgeAwarded: false };
+    f.regenDelay = .3;
+    return;
+  }
+  const stormCast = f.brushSwap ? !flow : flow;
+  if (stormCast) {
     // 雷 — the bolt crosses the whole ring
     glyph('雷', '#5b78c9');
     boltFX(f.x, f.y, foe.x, foe.y);
@@ -3242,10 +3298,50 @@ function fighterBrushCast(f) {
     freeze(.06); shake(5);
   }
   // a beat of recovery so the brush cannot be mashed every frame
-  f.action = { type: 'attack', t: 0, startup: 0, active: 0, recover: .55,
+  f.action = { type: 'attack', t: 0, startup: 0, active: 0, recover,
     dmg: 0, reach: 0, arc: 0, id: ++f.attackId, dir: f.swingDir,
     clashed: true, dodgeAwarded: false };
   f.regenDelay = .3;
+}
+/* the maw, fighter-native: drags the OTHER duelist for 1.6s, then
+   collapses — 60 damage and a stagger to anyone still inside. Rolls
+   halve the pull and i-frames evade the collapse. Deterministic:
+   no randomness touches position or damage.                        */
+function updateDuelHoles(dt) {
+  for (const b of blackholes) {
+    b.t += dt;
+    const p = clamp(b.t / b.dur, 0, 1);
+    b.r = 10 + p * 130;
+    shake(1 + p * 2.5);
+    const foe = b.owner === duel.p1 ? duel.p2 : duel.p1;
+    const d = dist(foe.x, foe.y, b.x, b.y);
+    if (d > 1) {
+      const ang = Math.atan2(b.y - foe.y, b.x - foe.x);
+      const rolling = foe.action && foe.action.type === 'dodge';
+      const pull = (200 + 380 * p) * (rolling ? .45 : 1);
+      foe.x += Math.cos(ang) * pull * dt;
+      foe.y += Math.sin(ang) * pull * dt;
+      clampArena(foe);
+    }
+    if (b.t >= b.dur && !b.done) {
+      b.done = true;
+      particles.push({ kind: 'ring', x: b.x, y: b.y, t: 0, life: .6,
+        color: 'rgba(122,108,192,.85)', r0: 20, r1: 420, w: 5 });
+      particles.push({ kind: 'glyph', ch: '滅', color: '#e8e4f4',
+        x: b.x, y: b.y, vx: 0, vy: -16, t: 0, life: 1.1, size: 60, misted: false });
+      inkSplat(b.x, b.y);
+      shake(11); freeze(.14);
+      playSfx('taiko');
+      if (dist(foe.x, foe.y, b.x, b.y) < b.r * .9) {
+        if (foe.dodgeInv) addText(foe.x, foe.y - 26, 'perfect dodge!', GOLD, 14);
+        else if (foe.iT <= 0) {
+          damageFighter(foe, 60, Math.atan2(foe.y - b.y, foe.x - b.x));
+          foe.staggerT = Math.max(foe.staggerT, .8);
+        }
+      }
+    }
+  }
+  blackholes = blackholes.filter(b => b.t < b.dur + .1);
 }
 function startFighterAttack(f) {
   const wpn = WEAPONS[f.blade];
@@ -3320,6 +3416,7 @@ function duelRoundWon(w, l) {
   shake(8); freeze(.12);
 }
 function resetDuelRound() {
+  blackholes = [];   // any half-grown maw dies with the round
   for (const f of [duel.p1, duel.p2]) {
     f.x = f.spawnX; f.y = f.spawnY; f.face = f.spawnFace;
     f.hp = f.maxHp; f.st = f.maxSt;
@@ -3444,6 +3541,19 @@ function updateFighter(f, dt) {
     else if (f.parryBuf > 0) { f.parryBuf = 0; startFighterParry(f); }
     else if (f.dodgeBuf > 0) { f.dodgeBuf = 0; startFighterDodge(f, mx, my); }
   }
+  // 瞑 meditation: kneel and breathe — the gauge refills three times as
+  // fast, but the feet are planted and the guard is down
+  f.meditating = !f.action && f.staggerT <= 0 &&
+    (f.ai ? false
+     : f.netCtl ? !!f.netCtl.med
+     : (f === duel.p1 ? !!keys.m : !!keys[',']));
+  if (f.meditating) {
+    mx = 0; my = 0;
+    f.st = Math.min(f.maxSt, f.st + 26 * (f.regenDelay <= 0 ? 2 : 3) * dt);
+    if (Math.random() < dt * 7)
+      particles.push({ kind: 'dot', x: f.x + rand(-8, 8), y: f.y - f.r,
+        vx: 0, vy: -34, t: 0, life: .8, color: 'rgba(168,132,58,.55)', rad: 1.8 });
+  }
   let vx = 0, vy = 0;
   const a = f.action;
   if (a) {
@@ -3551,6 +3661,21 @@ function drawFighter(f) {
   ctx.fillStyle = f.flashT > 0 ? REDHOT : CREAM;
   ctx.strokeStyle = INK; ctx.lineWidth = 3.5;
   ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, TAU); ctx.fill(); ctx.stroke();
+  // meditation ring
+  if (f.meditating) {
+    const br = .5 + Math.sin(game.time * 3) * .12;
+    ctx.strokeStyle = `rgba(168,132,58,${br * .6})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 6]);
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r + 12 + Math.sin(game.time * 3) * 2, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = `rgba(168,132,58,${br})`;
+    ctx.font = '13px Georgia,serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('瞑', f.x, f.y - f.r - 24);
+  }
   // parry guard / stagger daze
   if (f.action && f.action.type === 'parry') {
     const active = f.action.t <= PARRY.active;
@@ -3634,7 +3759,8 @@ function drawDuelHUD() {
     ctx.font = 'italic 12px Georgia,serif';
     // the brush is never allowed to masquerade — admin reads in red
     ctx.fillStyle = w.admin ? RED : INK;
-    ctx.fillText(`${w.kanji} ${w.name}${w.admin ? ' · ADMIN' : ''}`, x0, 70);
+    ctx.fillText(`${w.kanji} ${w.name}${w.admin ? ' · ADMIN' : ''}` +
+      `${f.ultMode ? ' · 滅' : ''}${f.brushSwap ? ' · 雷tap' : ''}`, x0, 70);
   }
   ctx.font = '20px Georgia,serif'; ctx.textAlign = 'center'; ctx.fillStyle = INK;
   ctx.fillText('決闘 ROUND ' + duel.round, W / 2, 26);
@@ -3653,10 +3779,16 @@ function drawDuelHUD() {
   }
   if (game.time < 6) {
     ctx.font = 'italic 11px Georgia,serif'; ctx.fillStyle = 'rgba(43,35,32,.55)';
-    ctx.fillText(duel.p2.ai
-      ? 'WASD move · V slash · B roll · N parry'
-      : 'P1: WASD · V slash · B roll · N parry        P2: arrows · O slash · P roll · I parry',
+    ctx.fillText(duel.p2.ai || duel.p2.netCtl
+      ? 'WASD move · V slash · B roll · N parry · M meditate'
+      : 'P1: WASD · V slash · B roll · N parry · M meditate      P2: arrows · O slash · P roll · I parry · , meditate',
       W / 2, H - 20);
+    if (WEAPONS[duel.p1.blade].admin || WEAPONS[duel.p2.blade].admin) {
+      ctx.fillStyle = RED;
+      ctx.fillText(net && net.started
+        ? 'brush stances: L — ultimate · U — swap tap spell'
+        : 'brush stances: P1 L/U · P2 K/J — ultimate / swap tap spell', W / 2, H - 34);
+    }
   }
   // mutators in play
   if (duel.mut && (duel.mut.sudden || duel.mut.nostam || duel.mut.giant || duel.mut.mirror)) {
@@ -3798,7 +3930,7 @@ function startOnlineDuel(hostBlade, guestBlade, mut, delay) {
     started: true, tick: 0, acc: 0, sendAcc: 0,
     delay: clamp(delay || NET_DELAY, NET_DELAY, 9),
     localQ: {}, remoteQ: {},
-    pend: { atk: false, roll: false, parry: false },
+    pend: { atk: false, roll: false, parry: false, ult: false, swap: false },
     rtt: net.rtt || 0, stall: false, pingT: 0,
   });
   // prime the input pipeline so tick 0 can step immediately
@@ -3825,15 +3957,22 @@ function sampleLocalBits() {
   if (net.pend.atk) b |= 16;
   if (net.pend.roll) b |= 32;
   if (net.pend.parry) b |= 64;
-  net.pend.atk = net.pend.roll = net.pend.parry = false;
+  if (net.pend.ult) b |= 128;
+  if (net.pend.swap) b |= 256;
+  if (keys.m || keys[',']) b |= 512;   // meditation is a held stance
+  net.pend.atk = net.pend.roll = net.pend.parry =
+    net.pend.ult = net.pend.swap = false;
   return b;
 }
 function applyBits(f, b) {
   f.netCtl.mx = ((b & 2) ? 1 : 0) - ((b & 1) ? 1 : 0);
   f.netCtl.my = ((b & 8) ? 1 : 0) - ((b & 4) ? 1 : 0);
+  f.netCtl.med = !!(b & 512);
   if (b & 16) f.attackBuf = .1;
   if (b & 32) f.dodgeBuf = .1;
   if (b & 64) f.parryBuf = .1;
+  if (b & 128) toggleFighterUlt(f);    // no-ops unless the blade is the brush
+  if (b & 256) toggleFighterSwap(f);
 }
 function commitLocal(k) {   // sample now, remember, and put it on the wire
   if (net.localQ[k] !== undefined) return;
@@ -4370,7 +4509,7 @@ function returnToMenu() {
   game.victory = false;
   portal = null; merchant = null; transition = null; storm = null; duel = null;
   shrine = null;
-  enemies = []; projectiles = []; shockwaves = [];
+  enemies = []; projectiles = []; shockwaves = []; blackholes = [];
   setTheme(0);
   resetPlayer();
   renderMenu();
@@ -4771,7 +4910,7 @@ function renderMenu() {
         if (w.admin) b.style.color = 'var(--red)';
         b.textContent = w.kanji;
         b.title = w.admin
-          ? `${w.name} — ADMIN · tap: 火 flame cone · roll-tap: 雷 seeking bolt`
+          ? `${w.name} — ADMIN · tap: 火 cone · roll-tap: 雷 bolt · L ult (滅 maw) · U swap`
           : `${w.name} — ${w.epithet}` +
             (save.owned.includes(id) ? '' : ' (duels only until purchased)');
         b.onclick = () => { menuSel[key] = id; renderMenu(); };
@@ -5126,6 +5265,7 @@ function update(dt) {
       }
     }
     collideStalks();
+    updateDuelHoles(dt);
     updateAmbient(dt);
     updateEffects(dt);
     return;
@@ -5540,6 +5680,21 @@ function drawPlayer() {
       bladeAng = p.face + 1.15 * a.dir;
       bladeLen = 28;
     }
+  }
+  // meditation: a calm gold ring, breath rising
+  if (p.meditating) {
+    const br = .5 + Math.sin(game.time * 3) * .12;
+    ctx.strokeStyle = `rgba(168,132,58,${br * .6})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 6]);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r + 12 + Math.sin(game.time * 3) * 2, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = `rgba(168,132,58,${br})`;
+    ctx.font = '13px Georgia,serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('瞑', p.x, p.y - p.r - 24);
   }
   // parry: a raised gold guard across the facing — gray once whiffed
   if (a && a.type === 'parry') {
