@@ -191,7 +191,7 @@
         <div class="controls">
           <div><kbd>← ↑ → ↓ / WASD</kbd> move &nbsp; <kbd>V</kbd> slash &nbsp;
                <kbd>Shift</kbd> dodge-roll &nbsp; <kbd>C</kbd> parry &nbsp;
-               <kbd>R</kbd> 奥義 ultimate &nbsp;
+               <kbd>R / Space</kbd> 奥義 ultimate &nbsp;
                <kbd>M</kbd> meditate &nbsp; <kbd>E</kbd> talk / trade</div>
           <div style="font-size:12px;opacity:.75;">watch the
             <span style="color:var(--red)">red arcs</span> — every strike is telegraphed.
@@ -678,31 +678,38 @@ addEventListener('keydown', e => {
   if (k === 'Shift') dodgeBuf = 0.18;
   if ((k === 'c' || k === 'C') && !e.repeat) parryBuf = 0.18;
   if (game.mode === 'duel' && game.state === 'playing' && duel) {
+    const lk = k.length === 1 ? k.toLowerCase() : k;
     if (net && net.started) {
-      // online: presses go into the lockstep pipeline, never straight in
+      // online: presses go into the lockstep pipeline, never straight in —
+      // one local player, so both bind sets drive them
       if (!e.repeat) {
-        if (k === 'v' || k === 'V') net.pend.atk = true;
-        if (k === 'b' || k === 'B' || k === 'Shift') net.pend.roll = true;
-        if (k === 'n' || k === 'N' || k === 'c' || k === 'C') net.pend.parry = true;
-        if (k === 'l' || k === 'L') net.pend.ult = true;      // brush maw / 奥義 surge
-        if (k === 'u' || k === 'U') net.pend.swap = true;     // cross the wire too
+        if (lk === 'v' || lk === 'u') net.pend.atk = true;
+        if (lk === 'b' || lk === 'i' || k === 'Shift') net.pend.roll = true;
+        if (lk === 'n' || lk === 'c' || lk === 'o') net.pend.parry = true;
+        if (lk === 'l' || lk === 'k' || lk === 'r' || k === ' ')
+          net.pend.ult = true;                            // brush maw / 奥義 surge
+        if (lk === 'y' || lk === 'j') net.pend.swap = true;   // cross the wire too
       }
-    } else {
-      if ((k === 'v' || k === 'V') && !e.repeat) duel.p1.attackBuf = .18;
-      if ((k === 'b' || k === 'B') && !e.repeat) duel.p1.dodgeBuf = .18;
-      if ((k === 'n' || k === 'N') && !e.repeat) duel.p1.parryBuf = .18;
-      if ((k === 'o' || k === 'O') && !e.repeat) duel.p2.attackBuf = .18;
-      if ((k === 'p' || k === 'P') && !e.repeat) duel.p2.dodgeBuf = .18;
-      if ((k === 'i' || k === 'I') && !e.repeat) duel.p2.parryBuf = .18;
-      // local brush stances: P1 on L/U (as in the trial), P2 on K/J
-      if ((k === 'l' || k === 'L') && !e.repeat) toggleFighterUlt(duel.p1);
-      if ((k === 'u' || k === 'U') && !e.repeat) toggleFighterSwap(duel.p1);
-      if ((k === 'k' || k === 'K') && !e.repeat) toggleFighterUlt(duel.p2);
-      if ((k === 'j' || k === 'J') && !e.repeat) toggleFighterSwap(duel.p2);
+    } else if (!e.repeat) {
+      // vs a bot the lone human owns BOTH bind sets; vs a human they split
+      const solo = !!duel.p2.ai;
+      const p2t = solo ? duel.p1 : duel.p2;
+      if (lk === 'v') duel.p1.attackBuf = .18;
+      if (lk === 'b') duel.p1.dodgeBuf = .18;
+      if (lk === 'n') duel.p1.parryBuf = .18;
+      // P2 mirrors the V/B/N order one row up: U slash · I roll · O parry
+      if (lk === 'u') p2t.attackBuf = .18;
+      if (lk === 'i') p2t.dodgeBuf = .18;
+      if (lk === 'o') p2t.parryBuf = .18;
+      // 奥義 / brush stances: P1 on L (or R / Space), P2 on K; swaps on Y / J
+      if (lk === 'l' || lk === 'r' || k === ' ') toggleFighterUlt(duel.p1);
+      if (lk === 'k') toggleFighterUlt(p2t);
+      if (lk === 'y') toggleFighterSwap(duel.p1);
+      if (lk === 'j') toggleFighterSwap(p2t);
     }
   }
   if ((k === 'e' || k === 'E') && !e.repeat) tryInteract();
-  if ((k === 'r' || k === 'R') && !e.repeat) activateUlt();
+  if ((k === 'r' || k === 'R' || k === ' ') && !e.repeat) activateUlt();
   if ((k === 'l' || k === 'L') && !e.repeat) toggleUlt();
   if ((k === 'u' || k === 'U') && !e.repeat) toggleBrushSwap();
   if (k === 'Enter') {
@@ -3696,6 +3703,9 @@ function startDuelMatch(tournamentRound) {
     p1.hp = p1.maxHp = 1;
     p2.hp = p2.maxHp = 1;
   }
+  // against a bot the lone human may fight from either half of the keyboard
+  if (p2.ai) p1.controls2 =
+    { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown' };
   duel = { round: 1, pauseT: 0, matchOver: false, p1, p2, mut, tournament: tour };
   p1.foe = p2; p2.foe = p1;
   setBanner(tour ? '冠 ' + TOURNAMENT[tournamentRound].title
@@ -3768,13 +3778,15 @@ function updateFighter(f, dt) {
   if (fighterSurged(f)) f.st = f.maxSt;   // the surge never tires
   // the AI duelist writes its own inputs each frame
   if (f.ai) updateFighterAI(f, dt);
-  const c = f.controls;
+  const c = f.controls, c2 = f.controls2;   // controls2: the solo human owns both sets
   let mx, my;
   if (f.ai) { mx = f.ai.mx; my = f.ai.my; }
   else if (f.netCtl) { mx = f.netCtl.mx; my = f.netCtl.my; }
   else {
-    mx = (keys[c.right] ? 1 : 0) - (keys[c.left] ? 1 : 0);
-    my = (keys[c.down] ? 1 : 0) - (keys[c.up] ? 1 : 0);
+    mx = ((keys[c.right] || (c2 && keys[c2.right])) ? 1 : 0) -
+         ((keys[c.left]  || (c2 && keys[c2.left]))  ? 1 : 0);
+    my = ((keys[c.down]  || (c2 && keys[c2.down]))  ? 1 : 0) -
+         ((keys[c.up]    || (c2 && keys[c2.up]))    ? 1 : 0);
     if (f === (duel && duel.p1) && touch.active) { mx = touch.mx; my = touch.my; }
   }
   if (mx || my) {
@@ -3792,7 +3804,7 @@ function updateFighter(f, dt) {
   f.meditating = !f.action && f.staggerT <= 0 &&
     (f.ai ? false
      : f.netCtl ? !!f.netCtl.med
-     : (f === duel.p1 ? !!keys.m : !!keys[',']));
+     : (f === duel.p1 ? !!(keys.m || (c2 && keys[','])) : !!keys[',']));
   if (f.meditating) {
     mx = 0; my = 0;
     f.st = Math.min(f.maxSt, f.st + 26 * (f.regenDelay <= 0 ? 2 : 3) * dt);
@@ -4070,14 +4082,14 @@ function drawDuelHUD() {
   if (game.time < 6) {
     ctx.font = 'italic 11px Georgia,serif'; ctx.fillStyle = 'rgba(43,35,32,.55)';
     ctx.fillText(duel.p2.ai || duel.p2.netCtl
-      ? 'WASD move · V slash · B roll · N parry · M meditate · L 奥義 when the bar burns'
-      : 'P1: WASD · V slash · B roll · N parry · M meditate · L 奥義      P2: arrows · O slash · P roll · I parry · , meditate · K 奥義',
+      ? 'move WASD or arrows · slash V or U · roll B or I · parry N or O · M meditate · Space 奥義 when the bar burns'
+      : 'P1: WASD · V slash · B roll · N parry · M meditate · Space 奥義      P2: arrows · U slash · I roll · O parry · , meditate · K 奥義',
       W / 2, H - 20);
     if (WEAPONS[duel.p1.blade].admin || WEAPONS[duel.p2.blade].admin) {
       ctx.fillStyle = RED;
       ctx.fillText(net && net.started
-        ? 'brush stances: L — ultimate · U — swap tap spell'
-        : 'brush stances: P1 L/U · P2 K/J — ultimate / swap tap spell', W / 2, H - 34);
+        ? 'brush stances: L — ultimate · Y — swap tap spell'
+        : 'brush stances: P1 L/Y · P2 K/J — ultimate / swap tap spell', W / 2, H - 34);
     }
   }
   // mutators in play
@@ -5241,7 +5253,7 @@ function renderMenu() {
         if (w.admin) b.style.color = 'var(--red)';
         b.textContent = w.kanji;
         b.title = w.admin
-          ? `${w.name} — ADMIN · tap: 火 cone · roll-tap: 雷 bolt · L ult (滅 maw) · U swap`
+          ? `${w.name} — ADMIN · tap: 火 cone · roll-tap: 雷 bolt · L ult (滅 maw) · Y swap in duels`
           : `${w.name} — ${w.epithet}` +
             (save.owned.includes(id) ? '' : ' (duels only until purchased)');
         b.onclick = () => { menuSel[key] = id; renderMenu(); };
