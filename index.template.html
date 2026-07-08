@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>墨刃 INKBLADE — a dojo trial</title>
+<style>
+  :root{
+    --ink:#2b2320;
+    --parchment:#ece0c8;
+    --red:#b5342a;
+    --gold:#a8843a;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;background:#d9cbae;overflow:hidden;
+    font-family:Georgia,'Times New Roman',serif;}
+  #wrap{position:relative;width:100vw;height:100vh;display:flex;
+    align-items:center;justify-content:center;}
+  #stage{position:relative;aspect-ratio:1024/640;width:min(100vw,calc(100vh*1024/640));}
+  /* only the game canvas stretches — icon canvases keep their pixel size */
+  #cv{display:block;width:100%;height:100%;touch-action:none;
+    box-shadow:0 12px 60px rgba(43,35,32,.35);}
+  .overlay{position:absolute;inset:0;display:none;align-items:flex-start;justify-content:center;
+    background:rgba(43,35,32,.28);overflow-y:auto;overscroll-behavior:contain;
+    padding:22px 14px;scrollbar-width:thin;
+    scrollbar-color:rgba(236,224,200,.65) transparent;}
+  .overlay.show{display:flex;}
+  /* the cord hangs beside the paper, never over it */
+  .overlay::-webkit-scrollbar{width:11px;}
+  .overlay::-webkit-scrollbar-track{background:transparent;}
+  .overlay::-webkit-scrollbar-thumb{background:rgba(236,224,200,.55);
+    border:3px solid rgba(43,35,32,.4);border-radius:6px;}
+  .panel{background:var(--parchment);border:4px solid var(--ink);padding:34px 48px;
+    max-width:640px;text-align:center;color:var(--ink);
+    box-shadow:8px 8px 0 rgba(43,35,32,.55);position:relative;
+    margin:auto;}   /* centers when short; the overlay scrolls when tall */
+  .panel::after{content:"刃";position:absolute;right:12px;bottom:26px;color:var(--red);
+    border:2px solid var(--red);padding:2px 6px;font-size:18px;opacity:.75;}
+  /* hanging-scroll rollers: lacquered dowels capping each end of the paper —
+     the view scrolls past the whole scroll, never over its words          */
+  .roller{position:relative;height:16px;flex:none;
+    background:linear-gradient(#4a3a2c,#241c16 55%,#3a2c20);
+    border-radius:8px;box-shadow:0 2px 5px rgba(43,35,32,.45);}
+  /* when the writing runs past the screen, the dowel invites a click —
+     tap it and the scroll unravels (or rewinds) beneath your hand      */
+  .roller.unravel{cursor:pointer;}
+  .rollerBot.unravel{animation:unravelPulse 1.8s ease-in-out infinite;}
+  @keyframes unravelPulse{
+    0%,100%{box-shadow:0 -2px 5px rgba(43,35,32,.45);}
+    50%{box-shadow:0 -2px 5px rgba(43,35,32,.45),0 5px 16px rgba(168,132,58,.8);}}
+  .roller::before,.roller::after{content:'';position:absolute;top:3px;width:8px;height:10px;
+    background:var(--gold);border-radius:3px;opacity:.85;}
+  .roller::before{left:7px;}
+  .roller::after{right:7px;}
+  .rollerTop{margin:-34px -48px 24px;}
+  .rollerBot{margin:24px -48px -34px;box-shadow:0 -2px 5px rgba(43,35,32,.45);}
+  .panel h1{font-size:44px;letter-spacing:.08em;margin-bottom:4px;}
+  .panel h1 .kanji{color:var(--red);margin-right:10px;}
+  .panel h2{font-size:30px;letter-spacing:.12em;margin-bottom:10px;}
+  .panel .sub{color:var(--gold);font-style:italic;margin-bottom:18px;}
+  .panel .stats{font-size:20px;margin:10px 0 18px;line-height:1.6;}
+  .panel .stats b{color:var(--gold);}
+  .controls{display:inline-block;text-align:left;font-size:15px;line-height:1.9;
+    margin-bottom:20px;border-top:1px solid rgba(43,35,32,.3);
+    border-bottom:1px solid rgba(43,35,32,.3);padding:10px 6px;}
+  .controls kbd{display:inline-block;min-width:26px;text-align:center;border:1.5px solid var(--ink);
+    padding:1px 7px;margin-right:8px;font-family:inherit;font-size:13px;background:#f5ead2;
+    box-shadow:2px 2px 0 rgba(43,35,32,.4);}
+  #shop{margin:6px 0 16px;text-align:left;
+    border-top:1px solid rgba(43,35,32,.3);border-bottom:1px solid rgba(43,35,32,.3);}
+  .shopItem{display:flex;align-items:center;gap:12px;padding:8px 6px;
+    border-bottom:1px dashed rgba(43,35,32,.22);}
+  .shopItem:last-child{border-bottom:none;}
+  .shopItem.locked{opacity:.42;}
+  .shopItem.legendary .si-name{color:var(--gold);}
+  .shopItem canvas{flex:none;}
+  .si-info{flex:1;min-width:0;}
+  .si-right{flex:none;text-align:right;max-width:38%;}
+  .si-name{font-size:16px;}
+  .si-name .kj{color:var(--red);margin-right:6px;}
+  .shopItem.legendary .si-name .kj{color:var(--gold);}
+  .si-desc{font-size:12px;opacity:.78;line-height:1.35;}
+  .si-cost{color:var(--gold);font-size:13px;white-space:nowrap;font-style:italic;}
+  .shopItem button{font-size:12px;padding:6px 12px;margin:0;letter-spacing:.05em;}
+  .shopItem button:disabled{background:rgba(43,35,32,.35);cursor:default;}
+  .shopItem.flash{animation:buyFlash .6s ease-out;}
+  @keyframes buyFlash{0%{background:rgba(168,132,58,.5);}100%{background:transparent;}}
+  .shopItem.admin .si-name,.shopItem.admin .si-name .kj{color:var(--red);}
+  .shopItem.admin{border-left:3px solid var(--red);padding-left:8px;}
+  #sealBox{margin-top:16px;}
+  #sealInput{font-family:inherit;font-size:13px;font-style:italic;text-align:center;
+    width:200px;background:transparent;border:none;outline:none;color:var(--ink);
+    border-bottom:1.5px solid rgba(43,35,32,.3);padding:4px 6px;}
+  #sealInput:focus{border-bottom-color:var(--red);}
+  #sealInput::placeholder{color:rgba(43,35,32,.32);}
+  #sealMsg{margin-top:6px;font-size:12px;color:var(--red);min-height:16px;letter-spacing:.06em;}
+  button{font-family:inherit;font-size:19px;letter-spacing:.1em;cursor:pointer;
+    background:var(--ink);color:var(--parchment);border:none;padding:12px 34px;margin:4px 8px;}
+  button:hover{background:var(--red);}
+  button.ghost{background:transparent;color:var(--ink);border:2px solid var(--ink);}
+  button.ghost:hover{color:var(--red);border-color:var(--red);background:transparent;}
+  .hint{margin-top:12px;font-size:13px;opacity:.65;}
+  /* --- main menu: mode + difficulty + level select --- */
+  .menuLabel{font-size:12px;letter-spacing:.22em;color:var(--gold);margin:14px 0 6px;
+    text-transform:uppercase;}
+  .modeRow{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+  .modeBtn{flex:1;min-width:150px;max-width:220px;font-size:16px;padding:12px 10px;
+    letter-spacing:.08em;
+    background:transparent;color:var(--ink);border:2px solid rgba(43,35,32,.4);}
+  .modeBtn .mSub{display:block;font-size:11px;font-style:italic;opacity:.65;
+    letter-spacing:.02em;margin-top:3px;}
+  .modeBtn:hover{background:rgba(43,35,32,.08);color:var(--ink);}
+  .modeBtn.sel{border-color:var(--ink);background:var(--ink);color:var(--parchment);}
+  .modeBtn.sel .mSub{opacity:.8;}
+  .modeBtn.inf.sel{background:#4a3a6b;border-color:#4a3a6b;}
+  .modeBtn.rush.sel{background:#7a241c;border-color:#7a241c;}
+  .modeBtn.duel.sel{background:#4a6d8c;border-color:#4a6d8c;}
+  .diffRow{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;}
+  .diffBtn{width:34px;height:32px;padding:0;margin:0;font-size:14px;
+    background:transparent;color:var(--ink);border:1.5px solid rgba(43,35,32,.35);}
+  .diffBtn:hover{background:rgba(181,52,42,.15);color:var(--ink);}
+  .diffBtn.sel{background:var(--red);border-color:var(--red);color:var(--parchment);}
+  #diffDesc{font-size:12px;font-style:italic;opacity:.7;margin-top:6px;min-height:15px;}
+  .lvlRow{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
+  .lvlBtn{width:40px;height:34px;padding:0;margin:0;font-size:15px;
+    background:transparent;color:var(--ink);border:1.5px solid rgba(43,35,32,.35);}
+  .lvlBtn.sel{background:var(--ink);color:var(--parchment);border-color:var(--ink);}
+  .lvlBtn:disabled{opacity:.3;cursor:default;background:transparent;color:var(--ink);}
+  #menuRecords{font-size:12px;margin-top:12px;opacity:.75;line-height:1.5;}
+  #menuRecords b{color:var(--gold);}
+  #btnMerchantMenu{display:none;}
+  /* --- merchant shop --- */
+  #shopOverlay .panel{width:680px;max-width:94vw;}
+  .shopTabs{display:flex;gap:0;margin:12px 0 0;border-bottom:2px solid var(--ink);}
+  .shopTab{flex:1;margin:0;font-size:15px;padding:9px 0;letter-spacing:.14em;
+    background:transparent;color:var(--ink);border:none;opacity:.55;}
+  .shopTab:hover{background:rgba(43,35,32,.08);color:var(--ink);}
+  .shopTab.sel{opacity:1;background:var(--ink);color:var(--parchment);}
+  #shopHonorLine{font-size:18px;color:var(--gold);margin-top:10px;}
+  .upgPips{display:flex;gap:3px;margin-top:4px;}
+  .upgPips span{width:22px;height:7px;border:1px solid var(--ink);background:transparent;}
+  .upgPips span.on{background:var(--gold);border-color:var(--gold);}
+  .upgKanji{font-size:26px;color:var(--red);width:40px;text-align:center;flex:none;}
+  /* --- game over records --- */
+  #overScores{font-size:13px;margin:6px 0 14px;opacity:.8;line-height:1.6;}
+  #overScores b{color:var(--gold);}
+  /* --- shrine blessings --- */
+  #blessRow{display:flex;gap:12px;justify-content:center;margin:16px 0;flex-wrap:wrap;}
+  .blessCard{flex:1;min-width:150px;max-width:175px;background:transparent;
+    border:2px solid rgba(43,35,32,.4);
+    color:var(--ink);padding:14px 10px;font-size:14px;letter-spacing:.03em;line-height:1.3;}
+  .blessCard .bk{display:block;font-size:30px;color:var(--gold);margin-bottom:6px;}
+  .blessCard .bd{display:block;font-size:11px;font-style:italic;opacity:.7;
+    margin-top:5px;letter-spacing:0;}
+  .blessCard:hover{border-color:var(--gold);background:rgba(168,132,58,.12);color:var(--ink);}
+  /* --- records scroll: stamps + stats --- */
+  #recordsOverlay .panel{width:680px;max-width:94vw;}
+  #stampWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));
+    gap:10px;margin:14px 0;}
+  .stamp{min-height:74px;border:2px solid rgba(43,35,32,.25);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:6px 4px;background:transparent;}
+  .stamp .sk{font-size:20px;color:rgba(43,35,32,.25);}
+  .stamp.on{border-color:var(--red);transform:rotate(-2deg);background:rgba(181,52,42,.07);}
+  .stamp.on .sk{color:var(--red);}
+  .stamp .sn{font-size:8px;text-align:center;opacity:.6;margin-top:2px;line-height:1.15;
+    width:100%;overflow-wrap:break-word;}
+  #statsBlock{font-size:13px;line-height:1.8;text-align:left;margin:10px 0;
+    border-top:1px solid rgba(43,35,32,.3);border-bottom:1px solid rgba(43,35,32,.3);
+    padding:8px 4px;display:grid;grid-template-columns:1fr 1fr;column-gap:18px;}
+  #statsBlock b{color:var(--gold);}
+  /* --- settings --- */
+  #settingsOverlay .panel{width:560px;max-width:94vw;}
+  .setRow{display:flex;align-items:center;gap:10px;font-size:14px;margin:9px 0;}
+  .setRow label{flex:0 0 150px;text-align:right;font-style:italic;opacity:.8;}
+  .setRow input[type=range]{flex:1;accent-color:var(--red);}
+  .setRow .sv{flex:0 0 40px;text-align:left;color:var(--gold);font-size:12px;}
+  .setRow input[type=checkbox]{width:16px;height:16px;accent-color:var(--red);}
+  #saveIO{width:100%;font-family:monospace;font-size:10px;background:rgba(43,35,32,.06);
+    border:1.5px solid rgba(43,35,32,.35);color:var(--ink);padding:6px;resize:vertical;}
+  #ioMsg{font-size:12px;color:var(--red);min-height:16px;margin:6px 0;}
+  #btnSettings{position:absolute;top:10px;right:14px;font-size:16px;padding:6px 10px;margin:0;}
+  /* --- curse toggles --- */
+  .curseBtn{height:34px;padding:0 10px;margin:0;font-size:13px;background:transparent;
+    color:var(--ink);border:1.5px solid rgba(43,35,32,.35);
+    white-space:nowrap;flex:none;}   /* keep whole; the row wraps instead */
+  .curseBtn:hover{background:rgba(181,52,42,.12);color:var(--ink);}
+  .curseBtn.sel{background:var(--red);border-color:var(--red);color:var(--parchment);}
+  #curseDesc{font-size:11px;font-style:italic;opacity:.65;margin-top:5px;min-height:14px;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+
+    <div id="titleOverlay" class="overlay show">
+      <div class="panel">
+        <button id="btnSettings" class="ghost" title="settings">設</button>
+        <h1><span class="kanji">墨刃</span>INKBLADE</h1>
+        <div class="sub">five arenas, five bosses — or an endless storm</div>
+        <div class="controls">
+          <div><kbd>← ↑ → ↓ / WASD</kbd> move &nbsp; <kbd>V</kbd> slash / draw bow &nbsp;
+               <kbd>Shift</kbd> dodge-roll &nbsp; <kbd>C</kbd> parry &nbsp;
+               <kbd>Q</kbd> bow ⇄ blade &nbsp;
+               <kbd>R / Space</kbd> 奥義 ultimate &nbsp;
+               <kbd>M</kbd> meditate &nbsp; <kbd>E</kbd> talk / trade</div>
+          <div style="font-size:12px;opacity:.75;">watch the
+            <span style="color:var(--red)">red arcs</span> — every strike is telegraphed.
+            <span style="color:var(--gold)">honor</span> falls only from slain bosses:
+            gather the golden orbs</div>
+        </div>
+        <div class="menuLabel">— mode —</div>
+        <div class="modeRow">
+          <button class="modeBtn sel" id="modeCampaign">CAMPAIGN
+            <span class="mSub">the story trial — arenas, lords, conquest</span></button>
+          <button class="modeBtn inf" id="modeInfinite">INFINITE
+            <span class="mSub">endless storm — or only the lords</span></button>
+          <button class="modeBtn duel" id="modeDuel">1v1 DUEL
+            <span class="mSub">two blades, one victor</span></button>
+        </div>
+        <div class="menuLabel" id="campLabel">— path —</div>
+        <div class="modeRow" id="campRow">
+          <button class="modeBtn" id="campStory">語 STORY
+            <span class="mSub">five story arenas, five bosses</span></button>
+          <button class="modeBtn" id="campConquest">征 CONQUEST
+            <span class="mSub">five maps, fifty stages, a climbing storm</span></button>
+        </div>
+        <div class="menuLabel" id="infLabel">— storm style —</div>
+        <div class="modeRow" id="infRow">
+          <button class="modeBtn inf" id="infEndless">嵐 ENDLESS
+            <span class="mSub">compounding waves, records kept</span></button>
+          <button class="modeBtn rush" id="infGauntlet">討 GAUNTLET
+            <span class="mSub">one lord at a time — race the clock</span></button>
+          <button class="modeBtn rush" id="infChaos">亂 CHAOS
+            <span class="mSub">the lords come together — endless</span></button>
+        </div>
+        <div id="duelSetup" style="display:none;">
+          <div class="menuLabel">— opponent —</div>
+          <div class="lvlRow" id="duelOppRow"></div>
+          <div id="onlineBox" style="display:none;">
+            <div class="menuLabel">— online · trade a room code, then the duel begins itself —</div>
+            <div>
+              <button id="btnHost" class="ghost" style="font-size:14px;padding:8px 16px;">HOST — GET CODE</button>
+              <input id="joinCode" type="text" maxlength="8" placeholder="code…"
+                     autocomplete="off" spellcheck="false"
+                     style="font-family:inherit;font-size:14px;text-align:center;width:90px;
+                            background:transparent;border:none;outline:none;color:var(--ink);
+                            border-bottom:1.5px solid rgba(43,35,32,.35);padding:4px;">
+              <button id="btnJoin" class="ghost" style="font-size:14px;padding:8px 16px;">JOIN</button>
+            </div>
+            <div id="netMsg" style="font-size:12px;color:var(--red);min-height:16px;margin-top:6px;"></div>
+          </div>
+          <div class="menuLabel">— dueling ground · hazards live —</div>
+          <div class="lvlRow" id="duelArenaRow"></div>
+          <div class="menuLabel">— mutators —</div>
+          <div class="lvlRow" id="duelMutRow"></div>
+          <div class="menuLabel">— player 1 blade · WASD + V slash + B roll + N parry + Q bow —</div>
+          <div class="lvlRow" id="p1BladeRow"></div>
+          <div class="menuLabel" id="p2BladeLabel">— player 2 blade · arrows + U slash + I roll + O parry + P bow —</div>
+          <div class="lvlRow" id="p2BladeRow"></div>
+          <div class="menuLabel" id="p1BowLabel">— player 1 bow · Q swaps stance in the ring —</div>
+          <div class="lvlRow" id="p1BowRow"></div>
+          <div class="menuLabel" id="p2BowLabel">— player 2 bow · P swaps stance in the ring —</div>
+          <div class="lvlRow" id="p2BowRow"></div>
+        </div>
+        <div id="tooEasyBox" style="margin-top:14px;">
+          <button id="btnTooEasy" class="ghost"
+                  style="font-size:13px;padding:7px 18px;letter-spacing:.14em;">太易 TOO&nbsp;EASY?</button>
+        </div>
+        <div id="advBox" style="display:none;">
+          <div class="menuLabel">— starting level —</div>
+          <div class="lvlRow" id="lvlRow"></div>
+          <div class="menuLabel" id="mapLabel">— map · foes grow ×1.15 every stage —</div>
+          <div class="lvlRow" id="mapRow"></div>
+          <div class="menuLabel">— difficulty —</div>
+          <div class="diffRow" id="diffRow"></div>
+          <div id="diffDesc"></div>
+          <div class="menuLabel" id="curseLabel">— curses · self-chosen burdens, paid in honor —</div>
+          <div class="lvlRow" id="curseRow"></div>
+          <div id="curseDesc"></div>
+        </div>
+        <div style="margin-top:18px;">
+          <button id="btnStart">BEGIN&nbsp;TRIAL</button>
+          <button id="btnMerchantMenu" class="ghost">視 THE&nbsp;MERCHANT</button>
+          <button id="btnRecords" class="ghost">巻 RECORDS</button>
+          <button id="btnTraining" class="ghost">稽古 TRAINING</button>
+          <button id="btnTomb" class="ghost">墓 THE&nbsp;TOMB</button>
+        </div>
+        <div class="hint">press Enter to begin</div>
+        <div id="menuRecords"></div>
+        <div id="sealBox">
+          <input id="sealInput" type="text" maxlength="24"
+                 placeholder="inscribe a seal…" autocomplete="off" spellcheck="false">
+          <div id="sealMsg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="shopOverlay" class="overlay">
+      <div class="panel">
+        <h2>視 THE&nbsp;MERCHANT</h2>
+        <div class="sub" id="shopGreeting">“Honor buys steel, stranger. Spend it well.”</div>
+        <div id="shopHonorLine">誉 <span id="shopHonor">0</span></div>
+        <div class="shopTabs">
+          <button class="shopTab sel" id="tabSwords">刀 SWORDS</button>
+          <button class="shopTab" id="tabBows">弓 BOWS</button>
+          <button class="shopTab" id="tabUpgrades">修 TRAINING</button>
+          <button class="shopTab" id="tabCharms">符 CHARMS</button>
+        </div>
+        <div id="shop"></div>
+        <button id="btnShopClose">LEAVE&nbsp;THE&nbsp;STALL</button>
+        <button id="btnRecordsShop" class="ghost">巻 RECORDS</button>
+        <div class="hint">purchases and training persist across every run</div>
+      </div>
+    </div>
+
+    <div id="recordsOverlay" class="overlay">
+      <div class="panel">
+        <h2>巻 THE&nbsp;RECORD&nbsp;SCROLL</h2>
+        <div class="sub">deeds stamped in red — kept for good</div>
+        <div id="statsBlock"></div>
+        <div id="stampWall"></div>
+        <button id="btnRecordsClose">CLOSE&nbsp;THE&nbsp;SCROLL</button>
+      </div>
+    </div>
+
+    <div id="settingsOverlay" class="overlay">
+      <div class="panel">
+        <h2>設 SETTINGS</h2>
+        <div class="sub">tuned to your hand — kept in the save</div>
+        <div class="setRow"><label>master volume</label>
+          <input type="range" id="setMaster" min="0" max="100"><span class="sv" id="setMasterV"></span></div>
+        <div class="setRow"><label>sword &amp; combat</label>
+          <input type="range" id="setSfx" min="0" max="100"><span class="sv" id="setSfxV"></span></div>
+        <div class="setRow"><label>ambience</label>
+          <input type="range" id="setAmb" min="0" max="100"><span class="sv" id="setAmbV"></span></div>
+        <div class="setRow"><label>mute all</label>
+          <input type="checkbox" id="setMute"><span class="sv"></span></div>
+        <div class="setRow"><label>screen shake</label>
+          <input type="range" id="setShake" min="0" max="150"><span class="sv" id="setShakeV"></span></div>
+        <div class="setRow"><label>colorblind telegraphs</label>
+          <input type="checkbox" id="setCB"><span class="sv">blue arcs</span></div>
+        <div class="setRow"><label>mouse aim</label>
+          <input type="checkbox" id="setMouse"><span class="sv">360° · click slashes · hold draws</span></div>
+        <div class="menuLabel">— save scroll · copy to carry your progress —</div>
+        <textarea id="saveIO" rows="3" spellcheck="false"></textarea>
+        <div>
+          <button id="btnExport" class="ghost">EXPORT</button>
+          <button id="btnImport" class="ghost">IMPORT</button>
+        </div>
+        <div id="ioMsg"></div>
+        <button id="btnSettingsClose">CLOSE</button>
+      </div>
+    </div>
+
+    <div id="shrineOverlay" class="overlay">
+      <div class="panel">
+        <h2>祈 THE&nbsp;WAYSIDE&nbsp;SHRINE</h2>
+        <div class="sub">one blessing, for the road ahead — it fades when the run ends</div>
+        <div id="blessRow"></div>
+        <button id="btnShrineSkip" class="ghost">WALK&nbsp;ON</button>
+      </div>
+    </div>
+
+    <div id="pauseOverlay" class="overlay">
+      <div class="panel">
+        <h2>間 PAUSED</h2>
+        <div class="sub">the blade rests — the ink waits</div>
+        <button id="btnResume">RESUME</button>
+        <button id="btnAbandon" class="ghost">ABANDON&nbsp;RUN</button>
+        <div class="hint">Esc to resume · honor, swords, and training are always kept</div>
+      </div>
+    </div>
+
+    <div id="overOverlay" class="overlay">
+      <div class="panel">
+        <h2 style="color:var(--red)" id="overTitle">FELLED</h2>
+        <div class="sub">the ink dries — your trial ends</div>
+        <div class="stats" id="overStats"></div>
+        <div id="overScores"></div>
+        <button id="btnRestart2">RETRY</button>
+        <button id="btnMenu" class="ghost">MAIN&nbsp;MENU</button>
+        <div class="hint">press Enter to retry — honor and gear are kept</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+<!--GAME_SCRIPT-->
+</script>
+</body>
+</html>
