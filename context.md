@@ -25,13 +25,12 @@ online-duel stretch goal — is built and verified, plus:
   30). **Chests** — weapons are FOUND, not bought: seeded rolls
   (`mulberry32(hash2(save.seed, chestsOpened))`, anti-save-scum),
   duplicates melt into XP shards; merchant keeps charms/training and
-  sells chest keys. **Tomb of the Fallen** — `startRun('tomb')`, toll
-  `300×1.5^S` per track, ghost-parry trial + breath finale, three stat
-  tracks stepping to exactly ×10 (`tombMult`, `baseCrit`). THE BALANCE
-  IDENTITY (guarded by a harness test): world ×942 vs maxed player
-  rarity 8× · XP ~10× · tomb 10× ≈ ×805 — the world wins by ~17%.
-  NONE of it touches duels — fighter damage is pinned to raw WEAPONS
-  stats by a harness test. Numbers render through `fmtNum`.
+  sells chest keys. **Tomb of the Fallen** — `startRun('tomb')`,
+  ghost-parry trial + breath finale. (2026-07-08: tracks are now FLAT
+  stats and the old ×10 / balance-identity math is gone — see the
+  REBIRTH section below, which is authoritative.) NONE of it touches
+  duels — fighter damage is pinned to raw WEAPONS stats by a harness
+  test. Numbers render through `fmtNum`.
 - **弓 archer stance** (Q; duel P2: P; online bit 1024): stance toggle with
   a .35s swap lock; hold attack to draw (held state = online bit 2048),
   release to loose (`pArrows`, `playerLooseArrow`/`fighterLooseArrow`).
@@ -292,6 +291,120 @@ float — these features widen the INPUT, rendering needed nothing:
   WASD), click = V-key doorway (brush hold included, bow reads
   `mouse.down` as held), dry-brush reticle drawn screen-space in
   90-render. PvE only — `mouseAimOn()` refuses duels and touch.
+
+## 転生 REBIRTH + tomb flat-stat rework (2026-07-08) — SUPERSEDES THE OLD BALANCE IDENTITY
+
+The tomb's ×10 multiplier tracks and the "world ×942 vs player ×805"
+identity are GONE. New shape:
+
+- **Tomb = flat stats, uncapped** (25-save helpers): edge → `tombAtk()`
+  +1 attack/step, body → `tombHp()` +6 HP/step, stance →
+  `tombPosture()` +2 posture/step (also +1% riposte window/step in
+  getParried). `baseCrit()` is a flat 1.5. `tombCost` = 300×(1+.35S)
+  — steady slope. Trial unchanged (parry ghosts + breath, shaky .8).
+  Flat gains fade against the world's exponential curve BY DESIGN —
+  that wall is what makes rebirth matter.
+- **転生 rebirth is the only player exponential**: `save.rebirth.level`,
+  `rebirthMult()` = 1.5^level on PvE damage (startAttack,
+  playerLooseArrow) and max HP (+10 flat HP & +1 flat atk per level
+  too). Gate: `maxLevelCleared >= 5` EACH cycle (resets). `doRebirth()`
+  in 25-save rebuilds the save from defaultSave() + keeps: swords/bows
+  + weaponXP + mastery, achievements/stats/records, kyudo, headband,
+  seal, settings, seed+chestsOpened (chest stream never re-rolls).
+  Burns: honor, upgrades, tomb, charms (until cycle 5), maps/levels,
+  merchantUnlocked (until cycle 2). Perk ladder `REBIRTH_PERKS`:
+  1 ults · 2 merchant open · 3 start 誉1000 · 4 start chest key ·
+  5 heirloom charms.
+- **奥義 gated behind cycle 1** (`ultUnlocked()` in 25-save): addUlt +
+  activateUlt no-op at cycle 0 with a sealed 封 meter in the HUD.
+  Duels NEVER route through these (fighter ults untouched); the open
+  seal (admin) exempts.
+- **UI**: rebirth altar (`tombAltar`, east side of the tomb, torii) →
+  `openRebirth()` scroll overlay (#rebirthOverlay, perk rows, armed
+  double-click confirm; read-only when opened from the title's 転生
+  button, which appears once the gate has ever opened). Stat wall
+  (S&S-style bars: attack/vitality/posture + ×mult) drawn top-left in
+  tomb choose phase. Records + menu records show cycle.
+- Old saves: tomb step counts persist but are reinterpreted as flat
+  steps; everyone starts at cycle 0 → ults sealed until first rebirth.
+
+### Rebirth companions (same day, second pass)
+
+- **Ult sandbox**: the sealed meter now FILLS everywhere (grayed ashen
+  bar behind 封 in the HUD); `activateUlt` allows `mode === 'training'`
+  even at cycle 0 — the yard is where you learn arts before earning
+  them. Real trials still refuse.
+- **The world remembers**: `waveMults()` scales enemy hp+dmg by
+  `1 + .08 × rebirthLevel()` — keeps ×1.5/cycle from unmaking the game.
+- **虚 HOLLOW** (30-player): hitting 0 stamina → `player.hollowT = 2`:
+  parry window ×.5 (playerParryActive), dodge speed ×.7, damage taken
+  ×1.25 (damagePlayer). Re-arms only after st > 15 (`hollowSpent`).
+  Gray dashed ring + 虚 glyph in drawPlayer. PvE only — fighters
+  untouched.
+- **Perks 6–10** (REBIRTH_PERKS + implementations): 6 Twin Charms
+  (`save.charm2`, `charmed()` checks both, shop WEAR fills the free
+  slot, HUD shows both), 7 Sweetened Burdens (curse honor ×2 in
+  waveMults), 8 Remembered Roads (doRebirth grants maps.unlocked ≥ 2),
+  9 Patient Ancestor (tomb trial allows 1 scar), 10 Golden Stroke
+  (gold arc on the player at cycle ≥ 10, drawPlayer).
+- **Record cycle tags**: `save.recCycles` {wave,rush,chaos} +
+  `cycle` field on highScores entries; set at the four record sites in
+  65-run, shown in menu records and scoreListHTML, kept by doRebirth.
+- **Home portal**: victory (level 5 clear, or campaign map clear) now
+  spawns `spawnPortal(..., 'home')` beside the merchant — gold rift,
+  '帰 the road home', steps into `returnToMenu()`. No more
+  Esc→abandon after winning.
+
+## 二人 COUCH CO-OP (2026-07-08)
+
+A second local samurai for INFINITE and both BOSS RUSHES only — every
+other door stays solo. Started bottom-up in one session (entity kit →
+enemies → input), finished top-down in the next (run flow → menu →
+render/HUD → world sweeps).
+
+- **Scope & flow** (65-run): `menuSel.coop` → `game.coop` is armed in
+  `startRun` only for `infinite`/`rush`; `p2 = makeP2(menuSel.p2Blade,
+  menuSel.p2Bow)` (30-player) or null. `returnToMenu` clears both.
+  Between-wave heals run over `allPlayers()`; `wallSpot` keeps spawn
+  distance from every blade; `waveMults` hp ×1.6 while two stand.
+- **P1 is untouched**: save-backed progression, charms, kyudo, 奥義,
+  mouse aim. In co-op, `gatherInput` gives P1 WASD only — the arrows
+  belong to P2 (solo keeps both, exactly as before).
+- **P2 is duel-raw** (`pl.p2` flag): any non-admin blade + any bow
+  straight from the menu (`menuSel.p2Blade/p2Bow`, shared with the duel
+  pickers), flat 100/100 statline (frail curse respected), own
+  ame-stacks/riposte/hollow state, and **never a save write** — every
+  XP/ult-meter/stats/mastery/adapt site is guarded by `!pl.p2`.
+  The brush refuses the second hand (`makeP2` falls back to tetsu).
+- **Keys**: arrows move · U slash · I roll · O parry · P bow stance ·
+  `,` meditate (10-dom keydown row mirrors the duel P2 binds). In
+  co-op PvE, U no longer toggles brush swap.
+- **World asks the roster, never `player`**: `allPlayers` /
+  `alivePlayers` / `nearestPlayerTo` (30-player); every enemy
+  distance/angle/pursuit question routes through `Enemy.tgt()` (the
+  CO-OP CHOKEPOINT comment in 35-enemies) — including the Ronin
+  Archer's charged lead, the Sovereign's volley lead + punish/bait
+  reads. Shockwaves, fire zones and enemy arrows threaten every alive
+  blade; orbs magnet to and are collected by the nearest blade into
+  the one shared wallet; the 'iron' blessing blesses the party.
+  Tomb ghosts and the TrainerBot still speak to `player` — those modes
+  are solo by construction.
+- **Downed, not dead**: a fatal blow with a partner standing kneels
+  the blade (`downed`, damageSamurai) — timers tick, nothing else;
+  wave clear calls `reviveDowned()` (half HP, full stamina, 1.2s iT).
+  Both down → gameOver as ever.
+- **Render/HUD** (90-render): `drawPlayer(pl)` is parametrized —
+  P2 wears an ink-gray headband (value, not hue), kneels faded under a
+  倒 glyph when downed, and P1-only bleeds (ult wings/run, rebirth
+  gold, neon roll streaks) are `!p.p2`-gated. HUD adds a slim 弐
+  hp/stamina stack under P1's bars and P2's arm bottom-right.
+- **Menu** (70-ui + template): a "company" row (一人 ALONE / 二人
+  CO-OP) under the storm-style buttons, unfolding P2 blade + bow rows.
+- Verified by `coop_harness.js` in the scratchpad (24 checks: solo
+  regression, arming rules, arrow movement + U-buffer swing, downed →
+  kneel → real-update-loop revive → wave 2, both-down gameOver, rush
+  entry, no save writes, admin refusal). Standard vm + API-bridge stub
+  harness — rebuild it if lost.
 
 ## 弓道 Archery Rite (2026-07-07, same session)
 

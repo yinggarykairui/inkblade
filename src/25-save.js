@@ -49,7 +49,9 @@ function defaultSave() {
     bestRushTime: null,       // gauntlet: fastest clear (seconds)
     bestChaosStage: 0,        // chaos rush: deepest stage survived
     charm: null,              // equipped charm id
+    charm2: null,             // second slot — opens at rebirth cycle 6
     charmsOwned: [],
+    recCycles: {},            // which 転生 cycle each record was set at
     mastery: {},              // swordId → boss kills while it was equipped
     achievements: [],         // earned achievement ids
     stats: Object.assign({}, DEFAULT_STATS, { bladeKills: {} }),
@@ -60,6 +62,7 @@ function defaultSave() {
     colorblind: false,        // high-contrast telegraph palette
     mouseAim: false,          // 360° cursor aim (PvE only; duels stay keys)
     kyudo: { rank: 0, best: 0 },   // 弓道 archery rite — trained bow skill
+    rebirth: { level: 0 },         // 転生 — the only exponential the player owns
   };
 }
 let save = defaultSave();
@@ -78,9 +81,13 @@ function loadSave() {
       if (!Array.isArray(save.achievements)) save.achievements = [];
       if (!Array.isArray(save.charmsOwned)) save.charmsOwned = [];
       if (save.charm && !save.charmsOwned.includes(save.charm)) save.charm = null;
+      if (save.charm2 && (!save.charmsOwned.includes(save.charm2) ||
+          save.charm2 === save.charm)) save.charm2 = null;
+      save.recCycles = Object.assign({}, d.recCycles);
       if (typeof save.shakeMul !== 'number') save.shakeMul = 1;
       save.mouseAim = !!save.mouseAim;   // additive — old saves default off
       save.kyudo = Object.assign({ rank: 0, best: 0 }, d.kyudo);
+      save.rebirth = Object.assign({ level: 0 }, d.rebirth);
       if (!Array.isArray(save.owned) || !save.owned.includes('tetsu')) save.owned = ['tetsu'];
       // bows arrived later — old saves get the starter quiver for free
       if (!Array.isArray(save.bowsOwned) || !save.bowsOwned.includes('shortbow'))
@@ -139,9 +146,79 @@ function grantWeaponXP(id, amt) {
   }
 }
 // Tomb of the Fallen: 10 steps per track, each ×10^(1/10) → exactly 10× capped
-function tombMult(track) { return Math.pow(10, ((save.tomb && save.tomb[track]) || 0) / 10); }
-function baseCrit() { return 1.5 * Math.pow(2, ((save.tomb && save.tomb.edge) || 0) / 10); }
-function tombCost(track) { return Math.round(300 * Math.pow(1.5, (save.tomb && save.tomb[track]) || 0)); }
+/* ---------- 墓 tomb flat stats + 転生 rebirth ----------
+   THE NEW BALANCE SHAPE (2026-07-08): the tomb no longer multiplies.
+   Each hard-won step ADDS a flat stat — costs climb on a steady slope,
+   steps are uncapped, and flat gains naturally fade against the
+   world's exponential curve. The ONLY exponential the player owns is
+   rebirth: ×1.5 might and vigor per cycle. All of it PvE — duels and
+   fighters never read these.                                          */
+function tombSteps(track) { return (save.tomb && save.tomb[track]) || 0; }
+function tombAtk()     { return Math.round(tombSteps('edge')); }        // 刃 +1 attack/step
+function tombHp()      { return Math.round(tombSteps('body') * 6); }    // 体 +6 health/step
+function tombPosture() { return tombSteps('stance') * 2; }              // 姿 +2 posture/step
+function baseCrit() { return 1.5; }   // crits are a skill payoff, no longer a track
+function tombCost(track) { return Math.round(300 * (1 + .35 * tombSteps(track))); }
+// 転生 rebirth — everything burns, the arsenal and the records remain
+function rebirthLevel() { return (save.rebirth && save.rebirth.level) || 0; }
+function rebirthMult() { return Math.pow(1.5, rebirthLevel()); }
+function ultUnlocked() {   // 奥義 opens at the first rebirth; the brush is admin
+  return rebirthLevel() >= 1 || game.adminUnlocked;
+}
+const REBIRTH_PERKS = [
+  { lvl: 1, kanji: '奥', name: 'The Gate Opens',
+    desc: '奥義 ultimate arts awaken — the meter charges, the arts answer' },
+  { lvl: 2, kanji: '視', name: 'An Old Friend',
+    desc: 'the merchant knows your face — the stall stands open from birth' },
+  { lvl: 3, kanji: '誉', name: 'Inheritance',
+    desc: 'each life begins with 誉 1,000 honor' },
+  { lvl: 4, kanji: '鍵', name: 'The Keeper’s Key',
+    desc: 'each life begins with a chest key on your belt' },
+  { lvl: 5, kanji: '符', name: 'Heirloom Charms',
+    desc: 'charms survive the cycle from here on' },
+  { lvl: 6, kanji: '双', name: 'Twin Charms',
+    desc: 'a second charm may be worn at once' },
+  { lvl: 7, kanji: '呪', name: 'Sweetened Burdens',
+    desc: 'every curse pays its honor twice over' },
+  { lvl: 8, kanji: '地', name: 'Remembered Roads',
+    desc: 'each life begins with the second map already open' },
+  { lvl: 9, kanji: '霊', name: 'A Patient Ancestor',
+    desc: 'the tomb trial forgives one scar' },
+  { lvl: 10, kanji: '金', name: 'The Golden Stroke',
+    desc: 'your figure carries a stroke of gold — proof of ten lives' },
+];
+function doRebirth() {
+  if ((save.maxLevelCleared || 0) < 5) return 'the fifth lord still stands';
+  const lvl = rebirthLevel() + 1;
+  // what crosses the cycle: the arsenal (and its tempering + mastery),
+  // the records, the trained eye, the seal, and the settings. The chest
+  // stream (seed + count) persists so old pulls can never be re-rolled.
+  const keep = {
+    owned: save.owned, weaponXP: save.weaponXP, mastery: save.mastery,
+    bowsOwned: save.bowsOwned, bowEquipped: save.bowEquipped,
+    equipped: (save.equipped === 'fudemaru' && save.adminUnlocked) ||
+              save.owned.includes(save.equipped) ? save.equipped : 'tetsu',
+    achievements: save.achievements, stats: save.stats,
+    highScores: save.highScores, deepestWave: save.deepestWave,
+    bestRushTime: save.bestRushTime, bestChaosStage: save.bestChaosStage,
+    kyudo: save.kyudo, headband: save.headband,
+    recCycles: save.recCycles,
+    adminUnlocked: save.adminUnlocked,
+    audio: save.audio, shakeMul: save.shakeMul,
+    colorblind: save.colorblind, mouseAim: save.mouseAim,
+    seed: save.seed, chestsOpened: save.chestsOpened,
+    charmsOwned: lvl >= 5 ? save.charmsOwned : [],   // heirloom charms at 5
+  };
+  save = Object.assign(defaultSave(), keep);
+  save.rebirth = { level: lvl };
+  // the ladder's standing gifts, granted at the start of every new life
+  if (lvl >= 2) save.merchantUnlocked = true;
+  if (lvl >= 3) save.honor = 1000;
+  if (lvl >= 4) save.chestKey = true;
+  if (lvl >= 8) save.maps.unlocked = Math.max(save.maps.unlocked, 2);
+  persistSave();
+  return null;
+}
 // 弓道 archery-rite ranks: trained at the yard's straw rings, skill IS the
 // stat. Ranks widen the arrows' seek cone (see ARROW_HOME) and, below,
 // quicken the draw and cheapen its wind — never in duels (fighters read

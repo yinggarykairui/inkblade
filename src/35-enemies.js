@@ -11,7 +11,8 @@ class Enemy {
     this.kbx = 0; this.kby = 0;
     this.hp = 30; this.maxHp = 30;
     this.speed = 120; this.color = C_GRUNT;
-    this.face = Math.atan2(player.y - y, player.x - x);
+    const t0 = nearestPlayerTo(x, y);   // co-op: face whichever blade is near
+    this.face = Math.atan2(t0.y - y, t0.x - x);
     this.state = 'spawn'; this.stateT = 0;
     this.dead = false; this.flashT = 0; this.frozenT = 0;
     this.armored = false;
@@ -38,8 +39,12 @@ class Enemy {
     const fn = this['enter_' + s];
     if (fn) fn.call(this, extra);
   }
-  d() { return dist(this.x, this.y, player.x, player.y); }
-  angTo() { return Math.atan2(player.y - this.y, player.x - this.x); }
+  // CO-OP CHOKEPOINT: every distance/angle/pursuit question about "the
+  // player" routes through tgt() — the nearest living, standing blade.
+  // Solo this is always `player`, so nothing changes for one samurai.
+  tgt() { return nearestPlayerTo(this.x, this.y); }
+  d() { const T = this.tgt(); return dist(this.x, this.y, T.x, T.y); }
+  angTo() { const T = this.tgt(); return Math.atan2(T.y - this.y, T.x - this.x); }
   facePlayer(rate, dt) {
     this.face += clamp(angDiff(this.face, this.angTo()), -rate * dt, rate * dt);
   }
@@ -74,14 +79,17 @@ class Enemy {
     this.x += this.kbx * dt; this.y += this.kby * dt;
     const fn = this['st_' + this.state];
     if (fn) fn.call(this, dt);
-    // elite damage aura — a seared ring the player must respect
+    // elite damage aura — a seared ring every blade must respect
     if (this.affix === 'aura' && !this.dead) {
       this.auraTick = Math.max(0, (this.auraTick || 0) - dt);
-      if (this.auraTick <= 0 &&
-          dist(this.x, this.y, player.x, player.y) < 64 + player.r) {
-        this.auraTick = .9;
-        if (damagePlayer(Math.max(2, Math.round(3 * game.curDmgMul)), this.angTo(), false))
-          addText(player.x, player.y - 40, 'seared!', RED, 11);
+      if (this.auraTick <= 0) {
+        for (const P of alivePlayers()) {
+          if (dist(this.x, this.y, P.x, P.y) >= 64 + P.r) continue;
+          this.auraTick = .9;
+          if (damageSamurai(P, Math.max(2, Math.round(3 * game.curDmgMul)),
+                            Math.atan2(P.y - this.y, P.x - this.x), false))
+            addText(P.x, P.y - 40, 'seared!', RED, 11);
+        }
       }
     }
     clampArena(this);
@@ -111,10 +119,11 @@ class Enemy {
     freeze(.08); shake(5);
     playSfx('break');
   }
-  getParried() {
+  getParried(byPl) {
+    byPl = byPl || player;   // which blade turned the blow aside
     // the blade turned aside — knocked wide open, the answer is coming
     this.didHit = true;
-    const away = this.angTo() + Math.PI;
+    const away = Math.atan2(this.y - byPl.y, this.x - byPl.x);
     this.kbx += Math.cos(away) * 420; this.kby += Math.sin(away) * 420;
     this.dropToken();
     this.addPosture(25);
@@ -122,13 +131,12 @@ class Enemy {
       this.hurtDur = .95;
       this.setState('hurt');
     }
-    // the Tomb's Set Stance also steadies the answer: up to +90% window
-    player.riposteT = 1.3 * (hasBless('focus') ? 2 : 1)
-                    * (1 + (tombMult('stance') - 1) * .1);
-    player.st = Math.min(player.maxSt, player.st + 14);
-    save.stats.parries++;
-    award('firstParry');
-    const mx = (this.x + player.x) / 2, my = (this.y + player.y) / 2;
+    // the Tomb's Set Stance also steadies the answer: +1% window per step
+    byPl.riposteT = 1.3 * (hasBless('focus') ? 2 : 1)
+                    * (1 + (byPl.p2 ? 0 : tombSteps('stance')) * .01);
+    byPl.st = Math.min(byPl.maxSt, byPl.st + 14);
+    if (!byPl.p2) { save.stats.parries++; award('firstParry'); }
+    const mx = (this.x + byPl.x) / 2, my = (this.y + byPl.y) / 2;
     sparks(mx, my, away, PAL.pigment.imperialGold, 12, Math.PI);
     addText(mx, my - 18, '弾 parried!', GOLD, 15);
     freeze(.1); shake(5);
@@ -138,8 +146,9 @@ class Enemy {
       if (this.hp <= 0) this.die();
     }
   }
-  hurt(dmg, ang, stun, pDmg = 8) {
+  hurt(dmg, ang, stun, pDmg = 8, src) {
     if (this.dead || this.state === 'spawn') return;
+    if (src) this.lastHitBy = src;   // co-op: remember whose steel bit last
     // shield ashigaru: frontal blows are turned aside — flank it or break it
     if (this.shielded && this.brokenT <= 0 &&
         Math.abs(angDiff(this.face, this.angTo())) < 1.15) {
@@ -178,12 +187,14 @@ class Enemy {
     shake(3);
     save.stats.kills++;
     addUlt(8);   // a felled foe feeds the 奥義 meter
-
-    save.stats.bladeKills[game.equipped] = (save.stats.bladeKills[game.equipped] || 0) + 1;
-    grantWeaponXP(game.equipped, this.isBoss ? 40 : 2);   // kills sharpen the blade
+    const killer = this.lastHitBy || player;
+    if (!killer.p2) {   // the second blade is progression-free
+      save.stats.bladeKills[game.equipped] = (save.stats.bladeKills[game.equipped] || 0) + 1;
+      grantWeaponXP(game.equipped, this.isBoss ? 40 : 2);   // kills sharpen the blade
+    }
     award('firstBlood');
     if (hasBless('reap'))   // the reaper's rhythm — stamina back on every kill
-      player.st = Math.min(player.maxSt, player.st + 12);
+      killer.st = Math.min(killer.maxSt, killer.st + 12);
     // elites are the only non-boss honor source — a small scatter
     if (this.elite && !this.isBoss) {
       spawnHonorOrbs(this.x, this.y, Math.max(10, Math.round(this.honorOrb * game.honorMult)));
@@ -212,7 +223,7 @@ class Enemy {
   st_approach(dt) {
     this.facePlayer(8, dt);
     // a drawn bow is an invitation — foes press it hard
-    this.moveToward(player.x, player.y, this.speed * (playerDrawing() ? 1.3 : 1), dt);
+    this.moveToward(this.tgt().x, this.tgt().y, this.speed * (playerDrawing() ? 1.3 : 1), dt);
     if (this.d() < this.holdDist + 25) {
       if (this.grabToken()) this.setState('advance');
       else this.setState('circle');
@@ -241,7 +252,7 @@ class Enemy {
   }
   st_advance(dt) {
     this.facePlayer(9, dt);
-    this.moveToward(player.x, player.y, this.speed * 1.25, dt);
+    this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.25, dt);
     if (this.d() < this.attackRange - 6) this.setState('windup');
     else if (this.stateT > 2.6) { this.dropToken(); this.setState('circle'); }
   }
@@ -271,24 +282,27 @@ class Enemy {
     this.kby += Math.sin(this.face) * this.lungeSpeed;
   }
   st_attack(dt) {
-    if (!this.didHit &&
-        inArc(this.x, this.y, this.face, this.attackRange + this.r, this.attackArc,
-              player.x, player.y, player.r)) {
-      if (player.dodgeInv) {
+    // the swing threatens every blade in the arc — co-op included
+    for (const P of alivePlayers()) {
+      if (this.didHit) break;
+      if (!inArc(this.x, this.y, this.face, this.attackRange + this.r, this.attackArc,
+                 P.x, P.y, P.r)) continue;
+      const angP = Math.atan2(P.y - this.y, P.x - this.x);
+      if (P.dodgeInv) {
         if (!this.dodgeAwarded) {
           this.dodgeAwarded = true;
-          onPerfectDodge();
+          onPerfectDodge(P);
         }
-      } else if (playerParryActive()) {
+      } else if (samuraiParryActive(P)) {
         if (this.heavy) {
           // too much iron behind it — the guard is crushed, dodge these
           this.didHit = true;
-          player.action = null;
-          if (damagePlayer(Math.max(1, Math.round(this.dmg * .5)), this.angTo(), true))
-            addText(player.x, player.y - 42, 'crushed!', RED, 13);
-        } else this.getParried();
-      } else if (player.iT <= 0) {
-        this.didHit = damagePlayer(this.dmg, this.angTo(), this.heavy);
+          P.action = null;
+          if (damageSamurai(P, Math.max(1, Math.round(this.dmg * .5)), angP, true))
+            addText(P.x, P.y - 42, 'crushed!', RED, 13);
+        } else this.getParried(P);
+      } else if (P.iT <= 0) {
+        this.didHit = damageSamurai(P, this.dmg, angP, this.heavy);
       }
     }
     if (this.stateT >= this.activeDur) { this.dropToken(); this.setState('recover'); }
@@ -335,10 +349,10 @@ class Duelist extends Enemy {
     this.postureMax = 55;
   }
   playerIsPunishable() {
-    const a = player.action;
+    const T = this.tgt(), a = T.action;
     return (a && a.type === 'attack' && a.t > a.startup + a.active) ||  // swing recovery
            (a && a.type === 'parry' && a.t > PARRY.active) ||           // whiffed parry
-           player.dodgeRecoverT > 0;                                   // roll recovery
+           T.dodgeRecoverT > 0;                                        // roll recovery
   }
   st_circle(dt) {
     this.facePlayer(9, dt);
@@ -358,7 +372,7 @@ class Duelist extends Enemy {
   }
   st_advance(dt) {
     this.facePlayer(10, dt);
-    this.moveToward(player.x, player.y, this.speed * 1.45, dt);
+    this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.45, dt);
     if (this.d() < this.attackRange - 4) {
       if (this.punishNext) {
         this.punishNext = false;
@@ -371,8 +385,9 @@ class Duelist extends Enemy {
   }
   st_feintwait(dt) {
     // if the feint baited a roll, strike the recovery window
-    const baited = game.time - player.lastDodgeStart < .55 &&
-                   game.time - player.lastDodgeStart > 0;
+    const T = this.tgt();
+    const baited = game.time - T.lastDodgeStart < .55 &&
+                   game.time - T.lastDodgeStart > 0;
     if (baited && this.stateT > .18) {
       addText(this.x, this.y - this.r - 12, 'read!', C_DUELIST, 13);
       this.setState('windup', { dur: .26, noDelay: true });
@@ -402,7 +417,7 @@ class Brute extends Enemy {
   st_circle(dt) {  // brutes don't dance — they loom, then push in
     this.facePlayer(5, dt);
     const d = this.d();
-    if (d > this.holdDist + 10) this.moveToward(player.x, player.y, this.speed * .6, dt);
+    if (d > this.holdDist + 10) this.moveToward(this.tgt().x, this.tgt().y, this.speed * .6, dt);
     if (this.stateT > .4 && this.grabToken()) this.setState('advance');
   }
 }
@@ -439,7 +454,7 @@ class Archer extends Enemy {
           ny < ARENA.y + 30 || ny > ARENA.y + ARENA.h - 30) this.orbitDir *= -1;
       this.x = nx; this.y = ny;
     } else if (d > 430) {
-      this.moveToward(player.x, player.y, this.speed * .8, dt);
+      this.moveToward(this.tgt().x, this.tgt().y, this.speed * .8, dt);
     } else {
       // in the band: sidestep lazily so they're never a static turret
       this.orbitFlipT -= dt;
@@ -453,7 +468,8 @@ class Archer extends Enemy {
   enter_aim() { this.aimT = this.aimDur / eAggro(); adapt.windups++; }
   st_aim(dt) {
     // keep re-predicting until loosing — the telegraph shows the true line
-    const lead = aimLead(player.x, player.y, player.vx, player.vy,
+    const T = this.tgt();
+    const lead = aimLead(T.x, T.y, T.vx, T.vy,
                          this.x, this.y, this.arrowSpeed);
     this.face = Math.atan2(lead.y - this.y, lead.x - this.x);
     if (this.d() < 110 && Math.random() < .5) {   // pressured: bail out
@@ -511,10 +527,11 @@ class Shinobi extends Enemy {
   }
   enter_vanishprep() {
     // the landing spot is marked BEFORE the step — smoke is the telegraph
-    const behind = player.face + Math.PI;
+    const T = this.tgt();
+    const behind = T.face + Math.PI;
     this.dest = {
-      x: clamp(player.x + Math.cos(behind) * 64, ARENA.x + this.r + 6, ARENA.x + ARENA.w - this.r - 6),
-      y: clamp(player.y + Math.sin(behind) * 64, ARENA.y + this.r + 6, ARENA.y + ARENA.h - this.r - 6),
+      x: clamp(T.x + Math.cos(behind) * 64, ARENA.x + this.r + 6, ARENA.x + ARENA.w - this.r - 6),
+      y: clamp(T.y + Math.sin(behind) * 64, ARENA.y + this.r + 6, ARENA.y + ARENA.h - this.r - 6),
     };
     puff(this.dest.x, this.dest.y, 'rgba(76,72,80,.55)', 8);
   }
@@ -551,7 +568,7 @@ class ShieldAshigaru extends Enemy {
   }
   st_circle(dt) {  // no dancing — a slow, square-shouldered advance
     this.facePlayer(6, dt);
-    if (this.d() > this.holdDist) this.moveToward(player.x, player.y, this.speed * .8, dt);
+    if (this.d() > this.holdDist) this.moveToward(this.tgt().x, this.tgt().y, this.speed * .8, dt);
     if (this.stateT > .5 && this.grabToken()) this.setState('advance');
   }
 }
@@ -578,6 +595,7 @@ class TombGhost extends Enemy {
     playSfx('vanish');
   }
   st_attack(dt) {
+    // the tomb is walked alone — the ghost answers only P1
     if (!this.didHit &&
         inArc(this.x, this.y, this.face, this.attackRange + this.r, this.attackArc,
               player.x, player.y, player.r)) {
@@ -701,7 +719,7 @@ class GateSentinel extends Grunt {
   }
   st_advance(dt) {
     this.facePlayer(9, dt);
-    this.moveToward(player.x, player.y, this.speed * 1.35, dt);
+    this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.35, dt);
     if (this.d() < this.attackRange + 10) {
       const T = this.dmgTuned || 1;
       if (Math.random() < .42) {          // gate-slam: wide, heavy, slow
@@ -762,7 +780,8 @@ class RoninArcher extends Archer {
     if (!this.chargedShot) { super.st_aim(dt); return; }
     // charged shot: tracks early, locks late, cannot be deflected — dodge it
     if (this.stateT < this.aimT * .8) {
-      const lead = aimLead(player.x, player.y, player.vx, player.vy, this.x, this.y, 680);
+      const T = this.tgt();
+      const lead = aimLead(T.x, T.y, T.vx, T.vy, this.x, this.y, 680);
       this.face = Math.atan2(lead.y - this.y, lead.x - this.x);
     }
     if (this.stateT >= this.aimT) {
@@ -801,7 +820,7 @@ class IronBrute extends Brute {
   }
   st_advance(dt) {
     this.facePlayer(6, dt);
-    this.moveToward(player.x, player.y, this.speed * 1.5, dt);
+    this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.5, dt);
     if (this.d() < this.attackRange - 6) {
       const T = this.dmgTuned || 1;
       this.slamNext = Math.random() < .45;
@@ -875,8 +894,9 @@ class StormSovereign extends Enemy {
   }
   fireVolley() {
     const n = this.phase() === 3 ? 3 : 2;
+    const T = this.tgt();
     for (let i = 0; i < n; i++) {
-      const lead = aimLead(player.x, player.y, player.vx, player.vy, this.x, this.y, 430);
+      const lead = aimLead(T.x, T.y, T.vx, T.vy, this.x, this.y, 430);
       const a = Math.atan2(lead.y - this.y, lead.x - this.x) + (i - (n - 1) / 2) * .22;
       projectiles.push({
         x: this.x + Math.cos(a) * (this.r + 8), y: this.y + Math.sin(a) * (this.r + 8),
@@ -890,10 +910,10 @@ class StormSovereign extends Enemy {
     playSfx('bolt');
   }
   playerIsPunishable() {
-    const a = player.action;
+    const T = this.tgt(), a = T.action;
     return (a && a.type === 'attack' && a.t > a.startup + a.active) ||
            (a && a.type === 'parry' && a.t > PARRY.active) ||
-           player.dodgeRecoverT > 0;
+           T.dodgeRecoverT > 0;
   }
   st_circle(dt) {
     this.facePlayer(10, dt);
@@ -907,14 +927,15 @@ class StormSovereign extends Enemy {
   }
   st_advance(dt) {
     this.facePlayer(10, dt);
-    this.moveToward(player.x, player.y, this.speed * 1.5, dt);
+    this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.5, dt);
     if (this.d() < this.attackRange - 4) {
       if (this.punishNext) { this.punishNext = false; this.setState('windup', { dur: .3, noDelay: true }); }
       else this.setState('windup', { feint: Math.random() < adapt.feintChance(.3) });
     } else if (this.stateT > 2.3) { this.dropToken(); this.setState('circle'); }
   }
   st_feintwait(dt) {
-    const baited = game.time - player.lastDodgeStart < .55 && game.time - player.lastDodgeStart > 0;
+    const T = this.tgt();
+    const baited = game.time - T.lastDodgeStart < .55 && game.time - T.lastDodgeStart > 0;
     if (baited && this.stateT > .18) {
       addText(this.x, this.y - this.r - 12, 'read!', '#7a6cc0', 13);
       this.setState('windup', { dur: .26, noDelay: true });
@@ -981,11 +1002,13 @@ function updateOrbs(dt) {
   for (const o of orbs) {
     o.t += dt;
     o.vx *= Math.exp(-3.2 * dt); o.vy *= Math.exp(-3.2 * dt);
-    const d = dist(o.x, o.y, player.x, player.y);
+    // co-op: gold flows to whichever blade stands nearer — one shared wallet
+    const P = nearestPlayerTo(o.x, o.y);
+    const d = dist(o.x, o.y, P.x, P.y);
     // blessing and charm both widen the pull — they stack
     const magR = 120 * (hasBless('magnet') ? 2 : 1) * (charmed('magnet') ? 2 : 1);
     if (d < magR) {          // magnet
-      const ang = Math.atan2(player.y - o.y, player.x - o.x);
+      const ang = Math.atan2(P.y - o.y, P.x - o.x);
       const pull = 340 * (1 - d / magR) + 90;
       o.vx += Math.cos(ang) * pull * dt * 6;
       o.vy += Math.sin(ang) * pull * dt * 6;
@@ -993,10 +1016,10 @@ function updateOrbs(dt) {
     o.x += o.vx * dt; o.y += o.vy * dt;
     o.x = clamp(o.x, ARENA.x + 8, ARENA.x + ARENA.w - 8);
     o.y = clamp(o.y, ARENA.y + 8, ARENA.y + ARENA.h - 8);
-    if (d < player.r + 9) {
+    if (d < P.r + 9) {
       o.dead = true;
-      addHonor(o.val, player.x, player.y - 26);
-      sparks(player.x, player.y, rand(0, TAU), GOLD, 3, Math.PI);
+      addHonor(o.val, P.x, P.y - 26);
+      sparks(P.x, P.y, rand(0, TAU), GOLD, 3, Math.PI);
       playSfx('orb');
     }
   }
@@ -1018,15 +1041,18 @@ function updateShockwaves(dt) {
   for (const s of shockwaves) {
     s.r += s.speed * dt;
     if (s.r > 720) { s.dead = true; continue; }
-    const d = dist(s.x, s.y, player.x, player.y);
-    if (Math.abs(d - s.r) < s.w) {
-      if (player.dodgeInv) {
-        if (!s.awarded) {
-          s.awarded = true;
-          onPerfectDodge();
+    // the ring threatens every blade it crosses — co-op included
+    for (const P of alivePlayers()) {
+      const d = dist(s.x, s.y, P.x, P.y);
+      if (Math.abs(d - s.r) < s.w) {
+        if (P.dodgeInv) {
+          if (!s.awarded) {
+            s.awarded = true;
+            onPerfectDodge(P);
+          }
+        } else if (P.iT <= 0) {
+          damageSamurai(P, s.dmg, Math.atan2(P.y - s.y, P.x - s.x), true);
         }
-      } else if (player.iT <= 0) {
-        damagePlayer(s.dmg, Math.atan2(player.y - s.y, player.x - s.x), true);
       }
     }
   }

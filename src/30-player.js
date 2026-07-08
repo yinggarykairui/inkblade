@@ -1,4 +1,10 @@
-/* ---------- player ---------- */
+/* ---------- player ----------
+   COUCH CO-OP (2026-07-08): the samurai kit is parametrized over an
+   entity `pl`. P1 is the classic `player` (save-backed progression,
+   charms, kyudo, ults, mouse aim). P2 (`p2`) exists only in co-op
+   infinite/rush: duel-style RAW stats — any blade/bow, no progression,
+   no 奥義 — driven by arrows + U/I/O/P/, . The solo game runs the same
+   single-entity path it always did.                                   */
 const player = {
   x: W / 2, y: H / 2, r: 13,
   vx: 0, vy: 0, kbx: 0, kby: 0,
@@ -20,42 +26,80 @@ const player = {
   bowLatch: false,         // the attack key must lift before the next draw
   ultArmor: false,         // scripted-ultimate armor: hits land but don't interrupt
   ultCounter: false,       // Tsukikage's counter-stance is up
+  attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
+  downed: false,
 };
+let p2 = null;   // the second blade — created by startRun when co-op is chosen
 
 const ATK = { startup: .13, active: .10, recover: .24, reach: 60, arc: 2.3, dmg: 12, cost: 18 };
 const DODGE = { dur: .34, invStart: .02, invEnd: .25, speed: 560, cost: 26, recover: .14 };
 const PARRY = { active: .13, recover: .27, cost: 10 };
 
+/* ---- co-op roster helpers — the world asks these, never `player` ---- */
+function allPlayers() { const out = [player]; if (p2) out.push(p2); return out; }
+function alivePlayers() {
+  return allPlayers().filter(P => P.hp > 0 && !P.downed);
+}
+function nearestPlayerTo(x, y) {
+  const list = alivePlayers();
+  if (!list.length) return player;
+  let best = list[0], bd = Infinity;
+  for (const P of list) {
+    const d = dist(x, y, P.x, P.y);
+    if (d < bd) { bd = d; best = P; }
+  }
+  return best;
+}
+// which blade / bow an entity swings — P1 reads the save, P2 its picks
+function eqOf(pl) { return pl.p2 ? pl.equipped : game.equipped; }
+function wpnOf(pl) { return WEAPONS[eqOf(pl)] || WEAPONS.tetsu; }
+function bowOf(pl) { return pl.p2 ? (BOWS[pl.bow] || BOWS.shortbow) : currentBow(); }
+// per-entity blade rhythm — P1's rides game state (HUD), P2 keeps its own
+function stacksOf(pl) { return pl.p2 ? (pl.ameStacks || 0) : game.ameStacks; }
+function setStacks(pl, v) { if (pl.p2) pl.ameStacks = v; else game.ameStacks = v; }
+function lastHurtOf(pl) { return pl.p2 ? (pl.lastHurtAt == null ? -99 : pl.lastHurtAt) : game.lastHurtAt; }
+
 // run-scoped blessing check (shrines populate game.blessings)
 function hasBless(id) { return !!(game.blessings && game.blessings.includes(id)); }
-// equipped-charm check — charms never apply in duels
-function charmed(id) { return save.charm === id && game.mode !== 'duel'; }
-
-function playerParryActive() {
-  const a = player.action;
-  return !!(a && a.type === 'parry' && a.t <= PARRY.active);
+// equipped-charm check — charms never apply in duels.
+// Cycle 6's Twin Charms opens a second slot (save.charm2).
+function charmed(id) {
+  if (game.mode === 'duel') return false;
+  return save.charm === id || (rebirthLevel() >= 6 && save.charm2 === id);
 }
-function startParry() {
-  if (player.st < PARRY.cost) {
-    addText(player.x, player.y - 24, 'exhausted!', RED, 13);
+
+function samuraiParryActive(pl) {
+  const a = pl.action;
+  // 虚 hollow lungs steady no guard — the window shrinks to half
+  return !!(a && a.type === 'parry' &&
+            a.t <= PARRY.active * (pl.hollowT > 0 ? .5 : 1));
+}
+function playerParryActive() { return samuraiParryActive(player); }
+function startParryFor(pl) {
+  if (pl.st < PARRY.cost) {
+    addText(pl.x, pl.y - 24, 'exhausted!', RED, 13);
     return;
   }
-  player.st = Math.max(0, player.st - PARRY.cost);
-  player.regenDelay = .5;
-  player.action = { type: 'parry', t: 0 };
-  player.lastParryStart = game.time;
-  // reactive-parry bookkeeping for the adaptive layer
-  if (enemies.some(e => !e.dead && (e.state === 'windup' || e.state === 'aim')))
+  pl.st = Math.max(0, pl.st - PARRY.cost);
+  pl.regenDelay = .5;
+  pl.action = { type: 'parry', t: 0 };
+  pl.lastParryStart = game.time;
+  // reactive-parry bookkeeping for the adaptive layer (P1 teaches it)
+  if (!pl.p2 && enemies.some(e => !e.dead && (e.state === 'windup' || e.state === 'aim')))
     adapt.windupParries++;
 }
+function startParry() { startParryFor(player); }
 // every perfect dodge funnels through here: adaptive layer, stats, blessings
-function onPerfectDodge() {
-  adapt.perfects++;
-  save.stats.perfectDodges++;
-  addUlt(10);   // a clean read feeds the 奥義 meter
-  addText(player.x, player.y - 26, 'perfect dodge!', GOLD, 14);
-  if (hasBless('mend')) player.hp = Math.min(player.maxHp, player.hp + 6);
-  award('firstPerfect');
+function onPerfectDodge(pl) {
+  pl = pl || player;
+  if (!pl.p2) {
+    adapt.perfects++;
+    save.stats.perfectDodges++;
+    addUlt(10);   // a clean read feeds the 奥義 meter
+    award('firstPerfect');
+  }
+  addText(pl.x, pl.y - 26, 'perfect dodge!', GOLD, 14);
+  if (hasBless('mend')) pl.hp = Math.min(pl.maxHp, pl.hp + 6);
 }
 
 function resetPlayer() {
@@ -64,76 +108,111 @@ function resetPlayer() {
   const frail = game.curses.includes('frail');
   Object.assign(player, {
     x: W / 2, y: H / 2, vx: 0, vy: 0, kbx: 0, kby: 0, face: 0,
-    maxHp: Math.max(10, Math.round(upgMaxHp() * tombMult('body') * (frail ? .5 : 1))),
+    maxHp: Math.max(10, Math.round((upgMaxHp() + tombHp() + 10 * rebirthLevel())
+                                   * rebirthMult() * (frail ? .5 : 1))),
     maxSt: upgMaxSt(), speed: upgSpeed(),
     action: null, iT: 0, riposteT: 0,
     dodgeInv: false, dodgeRecoverT: 0, flashT: 0, regenDelay: 0,
     lastDodgeStart: -99, vHeld: false,
     stance: 'sword', bowDraw: null, bowLatch: false,
     ultArmor: false, ultCounter: false,
+    hollowT: 0, hollowSpent: false,   // 虚 — the price of an empty chest
+    attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
+    downed: false,
   });
   player.hp = player.maxHp; player.st = player.maxSt;
   player.x = ARENA.x + ARENA.w / 2; player.y = ARENA.y + ARENA.h / 2;
 }
+// the second blade: duel-style raw — any arm, no progression, no 奥義
+function makeP2(bladeId, bowId) {
+  const frail = game.curses.includes('frail');
+  p2 = {
+    p2: true, r: 13,
+    x: ARENA.x + ARENA.w / 2 + 60, y: ARENA.y + ARENA.h / 2,
+    vx: 0, vy: 0, kbx: 0, kby: 0, face: Math.PI,
+    maxHp: Math.max(10, Math.round(100 * (frail ? .5 : 1))),
+    hp: 100, maxSt: 100, st: 100, speed: 235,
+    equipped: WEAPONS[bladeId] && !WEAPONS[bladeId].admin ? bladeId : 'tetsu',
+    bow: BOWS[bowId] ? bowId : 'shortbow',
+    action: null, iT: 0, riposteT: 0,
+    dodgeInv: false, dodgeRecoverT: 0, flashT: 0, regenDelay: 0,
+    lastDodgeStart: -99, lastParryStart: -99, lastHurtAt: -99,
+    swingDir: 1, attackId: 0, ameStacks: 0,
+    stance: 'sword', bowDraw: null, bowLatch: false,
+    ultArmor: false, ultCounter: false,
+    hollowT: 0, hollowSpent: false,
+    attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
+    downed: false, meditating: false,
+  };
+  p2.hp = p2.maxHp;
+  return p2;
+}
 function refreshPlayerStats() {  // after buying training mid-session
   const hpFrac = player.hp / player.maxHp, stFrac = player.st / player.maxSt;
-  player.maxHp = Math.round(upgMaxHp() * tombMult('body'));
+  player.maxHp = Math.round((upgMaxHp() + tombHp() + 10 * rebirthLevel()) * rebirthMult());
   player.maxSt = upgMaxSt(); player.speed = upgSpeed();
   player.hp = Math.round(player.maxHp * Math.max(hpFrac, 0));
   player.st = player.maxSt * stFrac;
 }
 
 function playerExhausted() { return player.st <= 0.01; }
+function exhaustedOf(pl) { return pl.st <= 0.01; }
 
-function startAttack() {
-  const wpn = currentWeapon();
+function startAttackFor(pl) {
+  const wpn = wpnOf(pl);
   // keyboard aim is eight-spoked — the blade forgives. The swing leans
   // toward the nearest foe within a natural turn of the wrist (~55°)
   // and honest striking range. PvE only: duel fighters aim themselves,
   // and nothing here draws from unseeded chance. A mouse aims truly —
   // when the cursor holds the wrist, the blade obeys it exactly.
-  if (game.mode !== 'duel' && !mouseAimOn()) {
+  if (game.mode !== 'duel' && !(!pl.p2 && mouseAimOn())) {
     let best = null, bestScore = 1e9;
     for (const e of enemies) {
       if (e.dead || e.state === 'spawn') continue;
-      const d = dist(player.x, player.y, e.x, e.y);
+      const d = dist(pl.x, pl.y, e.x, e.y);
       if (d - e.r > wpn.reach * 1.7) continue;
-      const off = Math.abs(angDiff(player.face,
-        Math.atan2(e.y - player.y, e.x - player.x)));
+      const off = Math.abs(angDiff(pl.face,
+        Math.atan2(e.y - pl.y, e.x - pl.x)));
       if (off > .95) continue;
       const score = d + off * 60;   // near and in front beats merely near
       if (score < bestScore) { bestScore = score; best = e; }
     }
-    if (best) player.face = Math.atan2(best.y - player.y, best.x - player.x);
+    if (best) pl.face = Math.atan2(best.y - pl.y, best.x - pl.x);
   }
-  // 奥義 INK SURGE: once the art has opened, the blade overflows
-  const surge = ultBuffed();
+  // 奥義 INK SURGE: once the art has opened, the blade overflows (P1 only)
+  const surge = !pl.p2 && ultBuffed();
   // The Hollow curse: the lungs never fill — every swing is a winded swing
-  const weak = playerExhausted() || game.curses.includes('winded');
-  player.st = Math.max(0, player.st - wpn.stCost);
-  player.regenDelay = .6;
+  const weak = exhaustedOf(pl) || game.curses.includes('winded');
+  pl.st = Math.max(0, pl.st - wpn.stCost);
+  pl.regenDelay = .6;
   let m = (weak ? 1.65 : 1) * wpn.spdMul;
   // Ame: rhythm stacks quicken successive clean swings
-  if (wpn.id === 'ame') m *= 1 - .06 * game.ameStacks;
+  if (wpn.id === 'ame') m *= 1 - .06 * stacksOf(pl);
   // dodge-into-attack window — Shirasagi flow / Raiko charge
-  const sinceDodge = game.time - player.lastDodgeStart;
-  const flowWin = DODGE.dur + ((wpn.id === 'shirasagi' && isMastered('shirasagi')) ? .75 : .5);
+  const sinceDodge = game.time - pl.lastDodgeStart;
+  const flowWin = DODGE.dur + ((wpn.id === 'shirasagi' && !pl.p2 && isMastered('shirasagi')) ? .75 : .5);
   const dodgeFlow = sinceDodge > 0 && sinceDodge < flowWin;
   const extended = wpn.id === 'shirasagi' && dodgeFlow;
   const charged = wpn.id === 'raiko' && dodgeFlow;
-  let dmg = Math.round(wpn.dmg * upgDmgMul() * (weak ? .55 : 1) * (charged ? 1.5 : 1)
-                       * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1)
-                       * (surge ? 2 : 1)
-                       * rarityMult(wpn.id) * wxpMult(wpn.id));   // the vertical tracks
+  // the tomb ADDS attack (flat); rebirth is the only multiplier — and the
+  // second blade is duel-raw: the steel alone, no ledger behind it
+  let dmg = pl.p2
+    ? Math.round(wpn.dmg * (weak ? .55 : 1) * (charged ? 1.5 : 1)
+                 * (hasBless('edge') ? 1.1 : 1))
+    : Math.round((wpn.dmg + tombAtk() + rebirthLevel())
+                 * upgDmgMul() * (weak ? .55 : 1) * (charged ? 1.5 : 1)
+                 * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1)
+                 * (surge ? 2 : 1) * rebirthMult()
+                 * rarityMult(wpn.id) * wxpMult(wpn.id));   // the vertical tracks
   let riposte = false;
-  if (player.riposteT > 0) {       // the parry's answer — one empowered stroke
+  if (pl.riposteT > 0) {       // the parry's answer — one empowered stroke
     riposte = true;
-    player.riposteT = 0;
+    pl.riposteT = 0;
     dmg = Math.round(dmg * 1.5);
-    addText(player.x, player.y - 28, 'riposte!', GOLD, 13);
-    sparks(player.x, player.y, player.face, PAL.pigment.imperialGold, 5, .7);
+    addText(pl.x, pl.y - 28, 'riposte!', GOLD, 13);
+    sparks(pl.x, pl.y, pl.face, PAL.pigment.imperialGold, 5, .7);
   }
-  player.action = {
+  pl.action = {
     type: 'attack', t: 0, weak, wpn, charged, extended, riposte,
     startup: ATK.startup * m,
     active: ATK.active * m * (extended ? 1.7 : 1),
@@ -141,208 +220,290 @@ function startAttack() {
     dmg,
     reach: wpn.reach * (surge ? 3 : 1),
     arc: wpn.arc * (charged ? 1.35 : 1) * (surge ? 1.3 : 1),
-    landed: false, id: ++player.attackId, dir: player.swingDir,
+    landed: false, id: ++pl.attackId, dir: pl.swingDir,
   };
-  player.swingDir *= -1;
-  adapt.swings++;
+  pl.swingDir *= -1;
+  if (!pl.p2) adapt.swings++;
   playSfx('whoosh');
   if (charged) {
     // white-hot, not blue — pigment stays behind the ultimate gate
-    addText(player.x, player.y - 28, 'charged!', 'rgba(43,35,32,.75)', 13);
-    sparks(player.x, player.y, player.face, 'rgba(240,240,240,.95)', 6, Math.PI);
+    addText(pl.x, pl.y - 28, 'charged!', 'rgba(43,35,32,.75)', 13);
+    sparks(pl.x, pl.y, pl.face, 'rgba(240,240,240,.95)', 6, Math.PI);
   }
-  if (extended) addText(player.x, player.y - 28, 'flow', 'rgba(43,35,32,.55)', 12);
+  if (extended) addText(pl.x, pl.y - 28, 'flow', 'rgba(43,35,32,.55)', 12);
 }
-function startDodge(mx, my) {
+function startAttack() { startAttackFor(player); }
+function startDodgeFor(pl, mx, my) {
   if (game.curses.includes('noroll')) {  // The Rooted — the curse holds your feet
-    addText(player.x, player.y - 24, '呪 rooted!', RED, 13);
+    addText(pl.x, pl.y - 24, '呪 rooted!', RED, 13);
     return;
   }
-  if (player.st < 10) {                 // too tired to roll
-    addText(player.x, player.y - 24, 'exhausted!', RED, 13);
+  if (pl.st < 10) {                 // too tired to roll
+    addText(pl.x, pl.y - 24, 'exhausted!', RED, 13);
     return;
   }
-  player.st = Math.max(0, player.st - DODGE.cost);
-  player.regenDelay = .6;
+  pl.st = Math.max(0, pl.st - DODGE.cost);
+  pl.regenDelay = .6;
   let dx = mx, dy = my;
-  if (!dx && !dy) { dx = Math.cos(player.face); dy = Math.sin(player.face); }
+  if (!dx && !dy) { dx = Math.cos(pl.face); dy = Math.sin(pl.face); }
   const l = Math.hypot(dx, dy) || 1;
-  player.action = { type: 'dodge', t: 0, dx: dx / l, dy: dy / l };
-  player.face = Math.atan2(dy, dx);
-  player.lastDodgeStart = game.time;
+  pl.action = { type: 'dodge', t: 0, dx: dx / l, dy: dy / l };
+  pl.face = Math.atan2(dy, dx);
+  pl.lastDodgeStart = game.time;
   playSfx('dodge');
   // reactive-dodge bookkeeping for the adaptive layer
-  if (enemies.some(e => !e.dead && (e.state === 'windup' || e.state === 'aim')))
+  if (!pl.p2 && enemies.some(e => !e.dead && (e.state === 'windup' || e.state === 'aim')))
     adapt.windupDodges++;
-  puff(player.x, player.y, 'rgba(43,35,32,.5)', 4);
+  puff(pl.x, pl.y, 'rgba(43,35,32,.5)', 4);
 }
+function startDodge(mx, my) { startDodgeFor(player, mx, my); }
 
-function damagePlayer(dmg, ang, heavy) {
-  if (player.iT > 0 || player.dodgeInv || game.state !== 'playing') return false;
-  // 月ノ答 — the counter-stance drinks the blow and answers it
-  if (player.ultCounter && game.ult.run) { ultCounterTrigger(game.ult.run, playerUltActor(), ang); return false; }
-  if (charmed('oni')) dmg = Math.round(dmg * 1.2);   // the Oni exacts its price
-  player.hp -= dmg;
+function damageSamurai(pl, dmg, ang, heavy) {
+  if (pl.downed || pl.iT > 0 || pl.dodgeInv || game.state !== 'playing') return false;
+  // 月ノ答 — the counter-stance drinks the blow and answers it (P1's art)
+  if (pl.ultCounter && game.ult.run && !pl.p2) {
+    ultCounterTrigger(game.ult.run, playerUltActor(), ang); return false;
+  }
+  if (!pl.p2 && charmed('oni')) dmg = Math.round(dmg * 1.2);   // the Oni exacts its price
+  if (pl.hollowT > 0) dmg = Math.round(dmg * 1.25);   // 虚 an empty chest guards nothing
+  pl.hp -= dmg;
   game.levelDamageTaken += dmg;
-  player.iT = .9; player.flashT = .3;
+  pl.iT = .9; pl.flashT = .3;
   playSfx('hurt');
   // an ultimate stuffed in its windup dies — but refunds most of the ink
-  if (game.ult.run && game.ult.run.phase === 'windup') ultWindupBroken();
-  if (player.ultArmor) {   // scripted armor: the blow lands, the art continues
-    player.kbx += Math.cos(ang) * 80; player.kby += Math.sin(ang) * 80;
+  if (!pl.p2 && game.ult.run && game.ult.run.phase === 'windup') ultWindupBroken();
+  if (pl.ultArmor) {   // scripted armor: the blow lands, the art continues
+    pl.kbx += Math.cos(ang) * 80; pl.kby += Math.sin(ang) * 80;
   } else {
-    player.kbx += Math.cos(ang) * (heavy ? 420 : 260);
-    player.kby += Math.sin(ang) * (heavy ? 420 : 260);
-    player.action = null;   // hits interrupt whatever the player was doing
-    player.bowDraw = null;  // the string slips
+    pl.kbx += Math.cos(ang) * (heavy ? 420 : 260);
+    pl.kby += Math.sin(ang) * (heavy ? 420 : 260);
+    pl.action = null;   // hits interrupt whatever the samurai was doing
+    pl.bowDraw = null;  // the string slips
   }
   game.combo = 0;
-  game.ameStacks = 0;
-  game.lastHurtAt = game.time;
-  adapt.taken++;
+  setStacks(pl, 0);
+  if (pl.p2) pl.lastHurtAt = game.time; else game.lastHurtAt = game.time;
+  if (!pl.p2) adapt.taken++;
   shake(heavy ? 8 : 4.5); freeze(heavy ? .09 : .05);
-  sparks(player.x, player.y, ang, RED, 8);
-  addText(player.x, player.y - 26, '-' + fmtNum(dmg), RED, 16);
-  if (player.hp <= 0) {
+  sparks(pl.x, pl.y, ang, RED, 8);
+  addText(pl.x, pl.y - 26, '-' + fmtNum(dmg), RED, 16);
+  if (pl.hp <= 0) {
     // Omamori: the charm takes the blow that would have ended the trial
-    if (charmed('omamori') && !game.omamoriUsed) {
+    if (!pl.p2 && charmed('omamori') && !game.omamoriUsed) {
       game.omamoriUsed = true;
-      player.hp = 1;
-      player.iT = 1.6;
+      pl.hp = 1;
+      pl.iT = 1.6;
       game.flashT = .25;
-      addText(player.x, player.y - 44, '守 the charm shatters', GOLD, 15);
-      particles.push({ kind: 'ring', x: player.x, y: player.y, t: 0, life: .6,
+      addText(pl.x, pl.y - 44, '守 the charm shatters', GOLD, 15);
+      particles.push({ kind: 'ring', x: pl.x, y: pl.y, t: 0, life: .6,
         color: 'rgba(168,132,58,.7)', r0: 12, r1: 160, w: 3 });
       freeze(.12); shake(6);
       playSfx('parry');
+    } else if (game.coop && alivePlayers().some(P => P !== pl)) {
+      // co-op: the fallen kneels — clear the wave and they stand again
+      pl.hp = 0;
+      pl.downed = true;
+      pl.action = null; pl.bowDraw = null; pl.meditating = false;
+      addText(pl.x, pl.y - 40, '倒 fallen — clear the wave', RED, 14);
+      inkSplat(pl.x, pl.y);
+      setBanner('a blade falls — finish the wave to raise them', 2.2);
     } else {
-      player.hp = 0;
+      pl.hp = 0;
       gameOver();
     }
   }
   return true;
 }
+function damagePlayer(dmg, ang, heavy) { return damageSamurai(player, dmg, ang, heavy); }
+// wave cleared: the fallen stand back up at half strength
+function reviveDowned() {
+  for (const P of allPlayers()) {
+    if (!P.downed) continue;
+    P.downed = false;
+    P.hp = Math.max(1, Math.round(P.maxHp * .5));
+    P.st = P.maxSt;
+    P.iT = 1.2;
+    addText(P.x, P.y - 30, '再 they stand again', GOLD, 14);
+    particles.push({ kind: 'ring', x: P.x, y: P.y, t: 0, life: .6,
+      color: 'rgba(168,132,58,.7)', r0: 10, r1: 90, w: 3 });
+    playSfx('bless');
+  }
+}
+// does any samurai hold a bent bow? (enemies press a drawn archer)
+function playerDrawing() {
+  return allPlayers().some(P => !P.downed && P.stance === 'bow' && !!P.bowDraw);
+}
+
+/* per-entity input — P1 owns WASD (and arrows when alone), touch and the
+   mouse; P2 owns the arrows and the duel-style U/I/O/P/, row */
+function gatherInput(pl) {
+  let mx, my, held, med;
+  if (pl.p2) {
+    mx = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
+    my = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
+    held = !!keys.u;
+    med = !!keys[','];
+  } else if (game.coop) {
+    mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
+    my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+    if (touch.active) { mx = touch.mx; my = touch.my; }
+    held = !!keys.v || touchUI.pressed.atk !== undefined || mouse.down;
+    med = !!keys.m;
+  } else {
+    mx = (keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.a ? 1 : 0);
+    my = (keys.ArrowDown || keys.s ? 1 : 0) - (keys.ArrowUp || keys.w ? 1 : 0);
+    if (touch.active) { mx = touch.mx; my = touch.my; }
+    held = !!keys.v || touchUI.pressed.atk !== undefined || mouse.down;
+    med = !!keys.m;
+  }
+  return { mx, my, held, med };
+}
 
 function updatePlayer(dt) {
+  updateSamurai(player, dt);
+  if (p2 && game.coop) updateSamurai(p2, dt);
+}
+function updateSamurai(pl, dt) {
   // timers
-  player.iT = Math.max(0, player.iT - dt);
-  player.flashT = Math.max(0, player.flashT - dt);
-  player.dodgeRecoverT = Math.max(0, player.dodgeRecoverT - dt);
-  player.riposteT = Math.max(0, player.riposteT - dt);
-  attackBuf = Math.max(0, attackBuf - dt);
-  dodgeBuf = Math.max(0, dodgeBuf - dt);
-  parryBuf = Math.max(0, parryBuf - dt);
-  player.dodgeInv = false;
+  pl.iT = Math.max(0, pl.iT - dt);
+  pl.flashT = Math.max(0, pl.flashT - dt);
+  pl.dodgeRecoverT = Math.max(0, pl.dodgeRecoverT - dt);
+  // the fallen kneel and wait — timers tick, nothing else
+  if (pl.downed) {
+    pl.kbx *= Math.exp(-8 * dt); pl.kby *= Math.exp(-8 * dt);
+    pl.vx = 0; pl.vy = 0;
+    pl.dodgeInv = false;
+    return;
+  }
+  // 虚 HOLLOW — running the lungs dry has a price: 2s of halved parry
+  // window, heavy rolls, +25% damage taken. It re-arms only after the
+  // chest refills past 15, so meditation is the honest answer.
+  pl.hollowT = Math.max(0, (pl.hollowT || 0) - dt);
+  if (pl.st <= 0.01 && !pl.hollowSpent) {
+    pl.hollowSpent = true;
+    pl.hollowT = 2;
+    addText(pl.x, pl.y - 32, '虚 hollow!', RED, 14);
+    particles.push({ kind: 'ring', x: pl.x, y: pl.y, t: 0, life: .5,
+      color: 'rgba(43,35,32,.5)', r0: 10, r1: 46, w: 2 });
+    playSfx('tick');
+  }
+  if (pl.st > 15) pl.hollowSpent = false;
+  pl.riposteT = Math.max(0, pl.riposteT - dt);
+  pl.attackBuf = Math.max(0, (pl.attackBuf || 0) - dt);
+  pl.dodgeBuf = Math.max(0, (pl.dodgeBuf || 0) - dt);
+  pl.parryBuf = Math.max(0, (pl.parryBuf || 0) - dt);
+  pl.dodgeInv = false;
 
-  // a scripted 奥義 owns the body: no inputs, no stances — only the art
-  if (game.ult.run) {
-    player.meditating = false;
-    player.bowDraw = null;
+  // a scripted 奥義 owns the body: no inputs, no stances — only the art (P1)
+  if (!pl.p2 && game.ult.run) {
+    pl.meditating = false;
+    pl.bowDraw = null;
     if (runEntityUlt(game.ult.run, playerUltActor(), dt)) {
       game.ult.run = null;
       game.ult.buffT = ULT_BUFF_PVE;   // the art spoken, the surge answers
       game.ult.meter = game.ult.max;   // stays full visually; HUD drains it as duration
     }
-    player.kbx *= Math.exp(-8 * dt); player.kby *= Math.exp(-8 * dt);
-    player.x += player.kbx * dt; player.y += player.kby * dt;
-    player.vx = 0; player.vy = 0;
-    clampArena(player);
+    pl.kbx *= Math.exp(-8 * dt); pl.kby *= Math.exp(-8 * dt);
+    pl.x += pl.kbx * dt; pl.y += pl.kby * dt;
+    pl.vx = 0; pl.vy = 0;
+    clampArena(pl);
     return;
   }
-  player.ultArmor = false; player.ultCounter = false;
+  pl.ultArmor = false; pl.ultCounter = false;
 
-  // 奥義 INK SURGE: while the surge runs the lungs never empty
-  if (ultBuffed()) player.st = player.maxSt;
+  // 奥義 INK SURGE: while the surge runs the lungs never empty (P1)
+  if (!pl.p2 && ultBuffed()) pl.st = pl.maxSt;
 
   // stamina regen (pauses briefly after any action)
-  player.regenDelay = Math.max(0, player.regenDelay - dt);
-  if (!player.action && player.regenDelay <= 0)
-    player.st = Math.min(player.maxSt,
-      player.st + upgRegen() * (hasBless('tempo') ? 1.25 : 1) * dt);
+  pl.regenDelay = Math.max(0, pl.regenDelay - dt);
+  const regenRate = pl.p2 ? 20 : upgRegen();
+  if (!pl.action && pl.regenDelay <= 0)
+    pl.st = Math.min(pl.maxSt,
+      pl.st + regenRate * (hasBless('tempo') ? 1.25 : 1) * dt);
 
   // directional input
-  let mx = (keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.a ? 1 : 0);
-  let my = (keys.ArrowDown || keys.s ? 1 : 0) - (keys.ArrowUp || keys.w ? 1 : 0);
-  if (touch.active) { mx = touch.mx; my = touch.my; }
+  const inp = gatherInput(pl);
+  let mx = inp.mx, my = inp.my;
   if (game.curses.includes('mirror')) { mx = -mx; my = -my; }   // The Reversed
   if (mx || my) {
     const l = Math.hypot(mx, my); mx /= l; my /= l;   // normalized diagonals
-    if (!player.action) player.face = Math.atan2(my, mx);
+    if (!pl.action) pl.face = Math.atan2(my, mx);
   }
   // mouse aim: the cursor owns the facing — full 360°, WASD keeps the feet
-  if (mouseAimOn() && !player.action) {
+  if (!pl.p2 && mouseAimOn() && !pl.action) {
     const mw = mouseWorld();
-    player.face = Math.atan2(mw.y - player.y, mw.x - player.x);
+    pl.face = Math.atan2(mw.y - pl.y, mw.x - pl.x);
   }
 
   // consume buffered actions — the bow has no swing; its draw is held, not tapped
-  if (!player.action) {
-    if (attackBuf > 0 && player.stance === 'sword') { attackBuf = 0; startAttack(); }
-    else if (parryBuf > 0) { parryBuf = 0; player.bowDraw = null; startParry(); }
-    else if (dodgeBuf > 0) { dodgeBuf = 0; player.bowDraw = null; startDodge(mx, my); }
+  if (!pl.action) {
+    if (pl.attackBuf > 0 && pl.stance === 'sword') { pl.attackBuf = 0; startAttackFor(pl); }
+    else if (pl.parryBuf > 0) { pl.parryBuf = 0; pl.bowDraw = null; startParryFor(pl); }
+    else if (pl.dodgeBuf > 0) { pl.dodgeBuf = 0; pl.bowDraw = null; startDodgeFor(pl, mx, my); }
   }
 
   // 弓 archer stance: hold the attack key to bend the string, release to loose.
   // The lengthening draw IS the telegraph — and the archer slows to hold it.
-  if (player.stance === 'bow' && game.equipped !== 'fudemaru') {
-    const held = !!keys.v || touchUI.pressed.atk !== undefined || mouse.down;
-    if (player.bowDraw && player.action) player.bowDraw = null;   // rolls drop the string
-    if (!player.action) {
-      const bow = currentBow();
-      if (player.bowDraw) {
-        player.bowDraw.t += dt;
-        player.regenDelay = Math.max(player.regenDelay, .35);
-        if (!held) { playerLooseArrow(bow, player.bowDraw.t); player.bowDraw = null; }
-      } else if (held && !player.bowLatch) {
-        player.bowLatch = true;
-        if (player.st >= bow.stCost * kyudoStamMul()) player.bowDraw = { t: 0 };
-        else addText(player.x, player.y - 24, 'exhausted!', RED, 13);
+  if (pl.stance === 'bow' && eqOf(pl) !== 'fudemaru') {
+    const held = inp.held;
+    if (pl.bowDraw && pl.action) pl.bowDraw = null;   // rolls drop the string
+    if (!pl.action) {
+      const bow = bowOf(pl);
+      if (pl.bowDraw) {
+        pl.bowDraw.t += dt;
+        pl.regenDelay = Math.max(pl.regenDelay, .35);
+        if (!held) { playerLooseArrow(bow, pl.bowDraw.t, pl); pl.bowDraw = null; }
+      } else if (held && !pl.bowLatch) {
+        pl.bowLatch = true;
+        const stamMul = pl.p2 ? 1 : kyudoStamMul();
+        if (pl.st >= bow.stCost * stamMul) pl.bowDraw = { t: 0 };
+        else addText(pl.x, pl.y - 24, 'exhausted!', RED, 13);
       }
     }
-    if (!held) player.bowLatch = false;
-  } else player.bowDraw = null;
+    if (!held) pl.bowLatch = false;
+  } else pl.bowDraw = null;
 
   // 瞑 meditation: stand still, breathe — stamina returns three times as
   // fast, even through the post-action pause, but you are rooted and open
-  player.meditating = !player.action && !player.bowDraw && !!keys.m;
-  if (player.meditating) {
+  pl.meditating = !pl.action && !pl.bowDraw && inp.med;
+  if (pl.meditating) {
     mx = 0; my = 0;
-    player.st = Math.min(player.maxSt,
-      player.st + upgRegen() * (hasBless('tempo') ? 1.25 : 1) *
-      (player.regenDelay <= 0 ? 2 : 3) * dt);
+    pl.st = Math.min(pl.maxSt,
+      pl.st + regenRate * (hasBless('tempo') ? 1.25 : 1) *
+      (pl.regenDelay <= 0 ? 2 : 3) * dt);
     if (Math.random() < dt * 7)
-      particles.push({ kind: 'dot', x: player.x + rand(-8, 8), y: player.y - player.r,
+      particles.push({ kind: 'dot', x: pl.x + rand(-8, 8), y: pl.y - pl.r,
         vx: 0, vy: -34, t: 0, life: .8, color: 'rgba(168,132,58,.55)', rad: 1.8 });
   }
 
   // movement
   let vx = 0, vy = 0;
-  const a = player.action;
+  const a = pl.action;
   if (a) {
     a.t += dt;
     if (a.type === 'attack') {
-      vx = mx * player.speed * .15; vy = my * player.speed * .15;  // rooted-ish
+      vx = mx * pl.speed * .15; vy = my * pl.speed * .15;  // rooted-ish
       const wpn = a.wpn;
       const activeStart = a.startup, activeEnd = a.startup + a.active;
       if (a.t >= activeStart && a.t < activeEnd) {
         // sweep the blade across the arc this frame
         const p = (a.t - activeStart) / a.active;
         const swing = lerp(-1.15, 1.15, p) * a.dir;
-        const bladeAng = player.face + swing;
-        const tipX = player.x + Math.cos(bladeAng) * a.reach;
-        const tipY = player.y + Math.sin(bladeAng) * a.reach;
-        // 奥義: the tip writes a neon ribbon across the frames
-        if (ultActive()) ultTrail.push({ x: tipX, y: tipY, t: game.time });
+        const bladeAng = pl.face + swing;
+        const tipX = pl.x + Math.cos(bladeAng) * a.reach;
+        const tipY = pl.y + Math.sin(bladeAng) * a.reach;
+        // 奥義: the tip writes a neon ribbon across the frames (P1)
+        if (!pl.p2 && ultActive()) ultTrail.push({ x: tipX, y: tipY, t: game.time });
         // swing dressing — the fx director paints ink or neon by state
-        fx('slash', { owner: player, x: player.x, y: player.y, reach: a.reach,
+        fx('slash', { owner: pl, x: pl.x, y: pl.y, reach: a.reach,
                       ang: bladeAng, dir: a.dir, weak: a.weak, charged: a.charged,
                       bladeId: wpn.id, tipX, tipY });
         for (const e of enemies) {
           if (e.dead || e.hitBy === a.id || e.state === 'spawn') continue;
-          if (inArc(player.x, player.y, player.face, a.reach + 4, a.arc, e.x, e.y, e.r)) {
+          if (inArc(pl.x, pl.y, pl.face, a.reach + 4, a.arc, e.x, e.y, e.r)) {
             e.hitBy = a.id;
             a.landed = true;
-            const ang = Math.atan2(e.y - player.y, e.x - player.x);
+            const ang = Math.atan2(e.y - pl.y, e.x - pl.x);
             const wasWinding = e.state === 'windup' || e.state === 'aim';
             game.combo++;
             game.comboPop = .25;
@@ -350,44 +511,48 @@ function updatePlayer(dt) {
             let dmg = a.dmg;
             // broken stance: every stroke lands as a critical
             if (e.brokenT > 0) {
-              dmg = Math.round(dmg * baseCrit());   // 1.5× → 3.0× via the Tomb's Edge track
+              dmg = Math.round(dmg * baseCrit());   // a clean 1.5× — skill's payoff
               addText(e.x, e.y - e.r - 34, 'critical!', GOLD, 13);
             }
             // Botan: damage-free style strikes harder (60% once mastered)
-            if (wpn.id === 'botan' && game.time - game.lastHurtAt > 2) {
-              dmg = Math.round(dmg * (isMastered('botan') ? 1.6 : 1.4));
+            if (wpn.id === 'botan' && game.time - lastHurtOf(pl) > 2) {
+              dmg = Math.round(dmg * (!pl.p2 && isMastered('botan') ? 1.6 : 1.4));
               addText(e.x, e.y - e.r - 24, 'clean!', GOLD, 13);
-              spawnPetals(e.x, e.y, 6, 'wash', player);   // ink petals; neon under surge
+              spawnPetals(e.x, e.y, 6, 'wash', pl);   // ink petals; neon under surge
             }
             let pDmg = WPN_POSTURE[wpn.id] || 8;
-            if (wpn.id === 'tetsu' && isMastered('tetsu')) pDmg *= 1.15;
+            if (wpn.id === 'tetsu' && !pl.p2 && isMastered('tetsu')) pDmg *= 1.15;
             // Kurogane: every 3rd combo hit is a crushing crow strike
             if (wpn.id === 'kurogane' && game.combo % 3 === 0) {
               dmg = Math.round(dmg * 1.5);
-              if (isMastered('kurogane')) pDmg += 10;
+              if (!pl.p2 && isMastered('kurogane')) pDmg += 10;
               addText(e.x, e.y - e.r - 24, 'crow strike!', INK, 14);
               puff(e.x, e.y, 'rgba(43,35,32,.7)', 12);
               freeze(.09); shake(6);
             }
             const stagger = wpn.stagger
-              ? wpn.stagger + (wpn.id === 'akaoni' && isMastered('akaoni') ? .3 : 0)
+              ? wpn.stagger + (wpn.id === 'akaoni' && !pl.p2 && isMastered('akaoni') ? .3 : 0)
               : undefined;
-            e.hurt(dmg, ang, stagger, Math.round(pDmg * tombMult('stance')));
-            addUlt(3.5);   // landed strokes fill the 奥義 meter
-            // weapon XP, normalized by the world curve — honest fights feed the blade
-            grantWeaponXP(wpn.id, dmg / stageMult(curStage()));
+            e.hurt(dmg, ang, stagger,
+                   Math.round(pDmg + (pl.p2 ? 0 : tombPosture())), pl);
+            if (!pl.p2) {
+              addUlt(3.5);   // landed strokes fill the 奥義 meter
+              // weapon XP, normalized by the world curve — honest fights feed the blade
+              grantWeaponXP(wpn.id, dmg / stageMult(curStage()));
+            }
             // Tsukikage: the light dims; true punishes refund stamina
             if (wpn.id === 'tsukikage') {
               game.desatT = .13;
               if (wasWinding) {
-                player.st = Math.min(player.maxSt, player.st + wpn.stCost + 6);
-                if (isMastered('tsukikage'))
-                  player.hp = Math.min(player.maxHp, player.hp + 4);
-                addText(player.x, player.y - 30, 'punish +気', '#6b78a8', 13);
+                pl.st = Math.min(pl.maxSt, pl.st + wpn.stCost + 6);
+                if (!pl.p2 && isMastered('tsukikage'))
+                  pl.hp = Math.min(pl.maxHp, pl.hp + 4);
+                addText(pl.x, pl.y - 30, 'punish +気', '#6b78a8', 13);
               }
             }
             // Raiko: killing blows arc lightning to a nearby foe (twice, mastered)
-            if (wpn.id === 'raiko' && e.dead) chainLightning(e.x, e.y, isMastered('raiko') ? 2 : 1);
+            if (wpn.id === 'raiko' && e.dead)
+              chainLightning(e.x, e.y, !pl.p2 && isMastered('raiko') ? 2 : 1);
             if (a.riposte && e.dead) award('riposte');
             sparks(e.x, e.y, ang, INK, 7);
             freeze(.045); shake(2);
@@ -396,9 +561,9 @@ function updatePlayer(dt) {
         // deflect arrows caught in the swing (charged shots cannot be blocked)
         for (const pr of projectiles) {
           if (pr.dead || pr.deflectable === false) continue;
-          if (inArc(player.x, player.y, player.face, a.reach + 8, a.arc, pr.x, pr.y, 4)) {
+          if (inArc(pl.x, pl.y, pl.face, a.reach + 8, a.arc, pr.x, pr.y, 4)) {
             pr.dead = true;
-            sparks(pr.x, pr.y, player.face, GOLD, 6);
+            sparks(pr.x, pr.y, pl.face, GOLD, 6);
             addText(pr.x, pr.y, 'deflect!', GOLD, 13);
             freeze(.03);
           }
@@ -406,10 +571,10 @@ function updatePlayer(dt) {
         // knock down bamboo stalks caught in the swing
         for (const st of stalks) {
           if (st.dead || st.hitBy === a.id) continue;
-          if (inArc(player.x, player.y, player.face, a.reach + 6, a.arc, st.x, st.y, st.r)) {
+          if (inArc(pl.x, pl.y, pl.face, a.reach + 6, a.arc, st.x, st.y, st.r)) {
             st.hitBy = a.id;
             st.hp--;
-            sparks(st.x, st.y, player.face, '#6a675c', 5);
+            sparks(st.x, st.y, pl.face, '#6a675c', 5);
             if (st.hp <= 0) {
               st.dead = true;
               puff(st.x, st.y, 'rgba(96,94,82,.7)', 10);
@@ -420,65 +585,65 @@ function updatePlayer(dt) {
         }
       }
       if (a.t >= a.startup + a.active + a.recover) {
-        if (a.landed) adapt.landedSwings++;
+        if (a.landed && !pl.p2) adapt.landedSwings++;
         // Ame: clean swings build tempo, a whiff drops it all (6 stacks mastered)
         if (wpn.id === 'ame')
-          game.ameStacks = a.landed
-            ? Math.min(isMastered('ame') ? 6 : 5, game.ameStacks + 1) : 0;
-        player.action = null;
+          setStacks(pl, a.landed
+            ? Math.min(!pl.p2 && isMastered('ame') ? 6 : 5, stacksOf(pl) + 1) : 0);
+        pl.action = null;
       }
     } else if (a.type === 'dodge') {
       const p = a.t / DODGE.dur;
-      const sp = DODGE.speed * (1 - p * .62);
+      // hollow legs roll heavy — the escape is a step, not a leap
+      const sp = DODGE.speed * (1 - p * .62) * (pl.hollowT > 0 ? .7 : 1);
       vx = a.dx * sp; vy = a.dy * sp;
-      if (ultActive()) ultTrail.push({ x: player.x, y: player.y, t: game.time });
-      // Koi charm: the fish slips through — 40% wider i-frame window
-      const invEnd = DODGE.invEnd * (charmed('koi') ? 1.4 : 1);
-      player.dodgeInv = a.t >= DODGE.invStart && a.t <= Math.min(invEnd, DODGE.dur);
+      if (!pl.p2 && ultActive()) ultTrail.push({ x: pl.x, y: pl.y, t: game.time });
+      // Koi charm: the fish slips through — 40% wider i-frame window (P1)
+      const invEnd = DODGE.invEnd * (!pl.p2 && charmed('koi') ? 1.4 : 1);
+      pl.dodgeInv = a.t >= DODGE.invStart && a.t <= Math.min(invEnd, DODGE.dur);
       if (a.t >= DODGE.dur) {
-        player.action = null;
-        player.dodgeRecoverT = DODGE.recover;   // punishable if predictable
+        pl.action = null;
+        pl.dodgeRecoverT = DODGE.recover;   // punishable if predictable
       }
     } else if (a.type === 'parry') {
       // planted: a raised guard, then a punishable recovery
-      if (a.t >= PARRY.active + PARRY.recover) player.action = null;
+      if (a.t >= PARRY.active + PARRY.recover) pl.action = null;
     } else if (a.type === 'swap') {
       // stance change: a real commitment — slow feet until the grip settles
-      vx = mx * player.speed * .25; vy = my * player.speed * .25;
-      if (a.t >= a.dur) player.action = null;
+      vx = mx * pl.speed * .25; vy = my * pl.speed * .25;
+      if (a.t >= a.dur) pl.action = null;
     }
   } else {
-    const spd = player.speed * (hasBless('wind') ? 1.18 : 1)
-              * (player.bowDraw ? .42 : 1);   // a bent string roots the feet
+    const spd = pl.speed * (hasBless('wind') ? 1.18 : 1)
+              * (pl.bowDraw ? .42 : 1);   // a bent string roots the feet
     vx = mx * spd; vy = my * spd;
   }
 
   // Raiko hums with static even at rest — gray ink until the surge burns
-  if (!player.action && game.equipped === 'raiko' && Math.random() < dt * 4) {
-    const ba = player.face + .55;
+  if (!pl.action && eqOf(pl) === 'raiko' && Math.random() < dt * 4) {
+    const ba = pl.face + .55;
     particles.push({ kind: 'line',
-      x: player.x + Math.cos(ba) * (player.r + 26),
-      y: player.y + Math.sin(ba) * (player.r + 26),
+      x: pl.x + Math.cos(ba) * (pl.r + 26),
+      y: pl.y + Math.sin(ba) * (pl.r + 26),
       vx: rand(-60, 60), vy: rand(-60, 60),
-      t: 0, life: .15, tint: 'faint', owner: player, w: 1.2 });
+      t: 0, life: .15, tint: 'faint', owner: pl, w: 1.2 });
   }
   // Fudemaru: bristles drip ink that never quite lands; spirit never tires
-  if (game.equipped === 'fudemaru') {
-    player.st = player.maxSt;
-    if (!player.action && Math.random() < dt * 2.5) {
-      const ba = player.face + .55;
+  if (!pl.p2 && game.equipped === 'fudemaru') {
+    pl.st = pl.maxSt;
+    if (!pl.action && Math.random() < dt * 2.5) {
+      const ba = pl.face + .55;
       particles.push({ kind: 'dot',
-        x: player.x + Math.cos(ba) * (player.r + 44),
-        y: player.y + Math.sin(ba) * (player.r + 44),
+        x: pl.x + Math.cos(ba) * (pl.r + 44),
+        y: pl.y + Math.sin(ba) * (pl.r + 44),
         vx: 0, vy: 60, t: 0, life: .28, color: 'rgba(43,35,32,.6)', rad: 2 });
     }
   }
 
   // knockback decay
-  player.kbx *= Math.exp(-8 * dt); player.kby *= Math.exp(-8 * dt);
-  player.x += (vx + player.kbx) * dt;
-  player.y += (vy + player.kby) * dt;
-  player.vx = vx; player.vy = vy;    // exposed for archer prediction
-  clampArena(player);
+  pl.kbx *= Math.exp(-8 * dt); pl.kby *= Math.exp(-8 * dt);
+  pl.x += (vx + pl.kbx) * dt;
+  pl.y += (vy + pl.kby) * dt;
+  pl.vx = vx; pl.vy = vy;    // exposed for archer prediction
+  clampArena(pl);
 }
-

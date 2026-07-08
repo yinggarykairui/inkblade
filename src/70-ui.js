@@ -191,18 +191,23 @@ function renderCharms() {
     const right = document.createElement('div');
     right.className = 'si-right';
     if (save.charmsOwned.includes(c.id)) {
+      // cycle 6's Twin Charms opens a second wrist
+      const slots = rebirthLevel() >= 6 ? ['charm', 'charm2'] : ['charm'];
+      const wornSlot = slots.find(s => save[s] === c.id);
       const b = document.createElement('button');
-      if (save.charm === c.id) {
+      if (wornSlot) {
         b.className = 'ghost'; b.textContent = 'UNEQUIP';
-        b.onclick = () => { save.charm = null; persistSave(); renderShopUI(); };
-      } else {
-        b.className = 'ghost'; b.textContent = 'WEAR';
-        b.onclick = () => { save.charm = c.id; persistSave(); renderShopUI(); };
-      }
-      if (save.charm === c.id) {
+        b.onclick = () => { save[wornSlot] = null; persistSave(); renderShopUI(); };
         const tag = document.createElement('div');
         tag.className = 'si-cost'; tag.textContent = '— worn —';
         right.appendChild(tag);
+      } else {
+        b.className = 'ghost'; b.textContent = 'WEAR';
+        b.onclick = () => {
+          const free = slots.find(s => !save[s]);
+          save[free || 'charm'] = c.id;   // both full: the first wrist trades
+          persistSave(); renderShopUI();
+        };
       }
       right.appendChild(b);
     } else {
@@ -348,6 +353,7 @@ function renderRecords() {
     `<div>chests opened: <b>${save.chestsOpened || 0}</b></div>` +
     `<div>tomb steps: <b>${((save.tomb.body || 0) + (save.tomb.stance || 0) + (save.tomb.edge || 0)).toFixed(1)}/30</b></div>` +
     `<div>弓道 archery rank: <b>${(save.kyudo && save.kyudo.rank) || 0}/10${save.kyudo && save.kyudo.best ? ' · best ' + save.kyudo.best : ''}</b></div>` +
+    `<div>転生 rebirths: <b>${rebirthLevel()}${rebirthLevel() ? ' · ×' + rebirthMult().toFixed(2) : ''}</b></div>` +
     `<div>favorite blade: <b>${fav && WEAPONS[fav] ? WEAPONS[fav].name + ' · ' + favN : '—'}</b></div>` +
     `<div>stamps: <b>${save.achievements.length}/${ACHIEVEMENTS.length}</b></div>`;
   const wall = document.getElementById('stampWall');
@@ -371,6 +377,72 @@ function closeMetaOverlay() {   // records + settings share the return path
   game.state = overlayReturn === 'shop' ? 'shop' : 'title';
   showOverlay(game.state === 'shop' ? 'shop' : 'title');
 }
+
+/* ---------- 転生 the rebirth scroll ----------
+   Opened at the tomb altar (or from the title once the fifth lord has
+   fallen). Shows the ladder, what the cycle keeps, and asks twice —
+   a rebirth burns the ledger and cannot be taken back.               */
+let rebirthReturn = 'title';
+let rebirthArmed = false;
+function renderRebirth() {
+  const lvl = rebirthLevel();
+  const gateOpen = (save.maxLevelCleared || 0) >= 5;
+  document.getElementById('rebirthStatus').innerHTML =
+    `cycle <b>${lvl}</b> · might &amp; vigor <b>×${rebirthMult().toFixed(2)}</b>` +
+    ` · next cycle <b>×${Math.pow(1.5, lvl + 1).toFixed(2)}</b>` +
+    `<br>${gateOpen
+      ? 'the fifth lord has fallen — the altar will answer'
+      : 'the altar is silent — <b>slay the fifth lord</b> of the story to open the cycle'}`;
+  const wall = document.getElementById('rebirthPerks');
+  wall.innerHTML = '';
+  for (const p of REBIRTH_PERKS) {
+    const row = document.createElement('div');
+    row.className = 'perkRow' + (lvl >= p.lvl ? ' got' : '');
+    row.innerHTML = `<div class="pk">${p.kanji}</div>` +
+      `<div><div>${p.name}</div><div class="pd">${p.desc}</div></div>` +
+      `<div class="plvl">${lvl >= p.lvl ? '— held —' : 'cycle ' + p.lvl}</div>`;
+    wall.appendChild(row);
+  }
+  const btn = document.getElementById('btnRebirth');
+  btn.disabled = !gateOpen || game.state !== 'rebirth' || rebirthReturn !== 'playing';
+  btn.textContent = rebirthArmed ? 'SPEAK IT AGAIN — BE REBORN' : 'BE REBORN';
+  document.getElementById('rebirthMsg').textContent =
+    rebirthReturn !== 'playing'
+      ? 'the cycle turns only at the tomb altar — this scroll only tells of it'
+      : (rebirthArmed ? 'once spoken twice, nothing unsays it' : '');
+}
+function openRebirth() {
+  rebirthReturn = game.state === 'playing' ? 'playing' : 'title';
+  rebirthArmed = false;
+  game.state = 'rebirth';
+  renderRebirth();
+  showOverlay('rebirth');
+}
+function closeRebirth() {
+  game.state = rebirthReturn === 'playing' ? 'playing' : 'title';
+  showOverlay(rebirthReturn === 'playing' ? 'none' : 'title');
+  rebirthArmed = false;
+}
+document.getElementById('btnRebirthClose').onclick = closeRebirth;
+document.getElementById('btnRebirth').onclick = () => {
+  if (!rebirthArmed) { rebirthArmed = true; renderRebirth(); return; }
+  const err = doRebirth();
+  if (err) {
+    document.getElementById('rebirthMsg').textContent = err;
+    rebirthArmed = false;
+    return;
+  }
+  // the world wakes into the new life
+  game.honor = save.honor;
+  game.equipped = save.equipped;
+  game.adminUnlocked = save.adminUnlocked;
+  rebirthArmed = false;
+  playSfx('achieve');
+  returnToMenu();
+  renderMenu();
+  setBanner(`転生 cycle ${rebirthLevel()} — might ×${rebirthMult().toFixed(2)}`, 3.5);
+};
+document.getElementById('btnRebirthMenu').onclick = openRebirth;
 
 /* ---------- settings ---------- */
 let syncAudioVolumes = () => {};   // the audio engine re-points this
@@ -445,6 +517,47 @@ function renderMenu() {
   document.getElementById('infEndless').classList.toggle('sel', menuSel.mode === 'infinite');
   document.getElementById('infGauntlet').classList.toggle('sel', menuSel.mode === 'rush' && !menuSel.chaos);
   document.getElementById('infChaos').classList.toggle('sel', menuSel.mode === 'rush' && menuSel.chaos);
+  // 二人 couch co-op — a second blade may join the storm and the rushes.
+  // P2 is duel-raw (any arm, no progression); the brush stays sealed out.
+  document.getElementById('coopBox').style.display = groupInf ? 'block' : 'none';
+  if (groupInf) {
+    const cRow = document.getElementById('coopRow');
+    cRow.innerHTML = '';
+    for (const [on, label] of [[false, '一人 ALONE'], [true, '二人 CO-OP']]) {
+      const b = document.createElement('button');
+      b.className = 'curseBtn' + (!!menuSel.coop === on ? ' sel' : '');
+      b.textContent = label;
+      b.onclick = () => { menuSel.coop = on; renderMenu(); };
+      cRow.appendChild(b);
+    }
+    document.getElementById('coopSetup').style.display = menuSel.coop ? 'block' : 'none';
+    if (menuSel.coop) {
+      if (!WEAPONS[menuSel.p2Blade] || WEAPONS[menuSel.p2Blade].admin) menuSel.p2Blade = 'tetsu';
+      if (!BOWS[menuSel.p2Bow]) menuSel.p2Bow = 'shortbow';
+      const bRow = document.getElementById('coopBladeRow');
+      bRow.innerHTML = '';
+      for (const id of WEAPON_ORDER) {
+        const w = WEAPONS[id];
+        const b = document.createElement('button');
+        b.className = 'lvlBtn' + (menuSel.p2Blade === id ? ' sel' : '');
+        b.textContent = w.kanji;
+        b.title = `${w.name} — ${w.epithet}`;
+        b.onclick = () => { menuSel.p2Blade = id; renderMenu(); };
+        bRow.appendChild(b);
+      }
+      const wRow = document.getElementById('coopBowRow');
+      wRow.innerHTML = '';
+      for (const id of BOW_ORDER) {
+        const b0 = BOWS[id];
+        const b = document.createElement('button');
+        b.className = 'lvlBtn' + (menuSel.p2Bow === id ? ' sel' : '');
+        b.textContent = b0.kanji;
+        b.title = `${b0.name} — ${b0.epithet}`;
+        b.onclick = () => { menuSel.p2Bow = id; renderMenu(); };
+        wRow.appendChild(b);
+      }
+    }
+  }
   const isDuel = menuSel.mode === 'duel';
   document.getElementById('duelSetup').style.display = isDuel ? 'block' : 'none';
   if (isDuel) {
@@ -626,13 +739,23 @@ function renderMenu() {
   }
   document.getElementById('btnMerchantMenu').style.display =
     save.merchantUnlocked ? 'inline-block' : 'none';
+  document.getElementById('btnRebirthMenu').style.display =
+    (rebirthLevel() > 0 || (save.maxLevelCleared || 0) >= 5) ? 'inline-block' : 'none';
   let rec = `wallet <b>誉 ${save.honor}</b>`;
+  if (rebirthLevel() > 0)
+    rec += ` · 転生 cycle <b>${rebirthLevel()}</b> (×${rebirthMult().toFixed(2)})`;
+  // records remember the cycle they were set at — a c0 wave 30 and a
+  // c5 wave 30 are different feats
+  const cyc = n => n ? ` <i>(cycle ${n})</i>` : '';
   if (save.maxLevelCleared > 0) rec += ` · levels cleared: <b>${save.maxLevelCleared}/5</b>`;
-  if (save.deepestWave > 0) rec += ` · deepest wave: <b>${save.deepestWave}</b>`;
-  if (save.bestRushTime != null) rec += ` · best gauntlet: <b>${fmtTime(save.bestRushTime)}</b>`;
-  if (save.bestChaosStage > 0) rec += ` · chaos stage: <b>${save.bestChaosStage}</b>`;
+  if (save.deepestWave > 0)
+    rec += ` · deepest wave: <b>${save.deepestWave}</b>${cyc(save.recCycles.wave)}`;
+  if (save.bestRushTime != null)
+    rec += ` · best gauntlet: <b>${fmtTime(save.bestRushTime)}</b>${cyc(save.recCycles.rush)}`;
+  if (save.bestChaosStage > 0)
+    rec += ` · chaos stage: <b>${save.bestChaosStage}</b>${cyc(save.recCycles.chaos)}`;
   const hs = save.highScores[0];
-  if (hs) rec += `<br>best storm: wave <b>${hs.wave}</b> · 誉 ${hs.honor} · ×${hs.diff}`;
+  if (hs) rec += `<br>best storm: wave <b>${hs.wave}</b> · 誉 ${hs.honor} · ×${hs.diff}${cyc(hs.cycle)}`;
   document.getElementById('menuRecords').innerHTML = rec;
 }
 

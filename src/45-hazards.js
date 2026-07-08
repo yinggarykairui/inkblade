@@ -38,7 +38,8 @@ function openShrine() {
 function pickBlessing(id) {
   game.blessings.push(id);
   award('blessed');
-  if (id === 'iron') { player.maxHp += 30; player.hp += 30; }
+  // blessings are run-scoped and bless the whole party, P2 included
+  if (id === 'iron') for (const P of allPlayers()) { P.maxHp += 30; P.hp += 30; }
   const b = BLESSINGS.find(x => x.id === id);
   setBanner('祈 ' + b.name, 2);
   if (shrine) {
@@ -107,12 +108,14 @@ function collideStalks() {
 function updateHazards(dt) {
   for (const f of fireZones) {
     f.phase += dt;
-    if (player.iT <= 0 && !player.dodgeInv &&
-        dist(player.x, player.y, f.x, f.y) < f.r - 4) {
-      const ang = Math.atan2(player.y - f.y, player.x - f.x);
-      if (damagePlayer(Math.max(4, Math.round(6 * game.curDmgMul)), ang, false)) {
-        addText(player.x, player.y - 40, 'burned!', PAL.pigment.cinnabar, 13);
-        fx('burn', { x: player.x, y: player.y });
+    for (const P of alivePlayers()) {   // the flame bites every blade
+      if (P.iT <= 0 && !P.dodgeInv &&
+          dist(P.x, P.y, f.x, f.y) < f.r - 4) {
+        const ang = Math.atan2(P.y - f.y, P.x - f.x);
+        if (damageSamurai(P, Math.max(4, Math.round(6 * game.curDmgMul)), ang, false)) {
+          addText(P.x, P.y - 40, 'burned!', PAL.pigment.cinnabar, 13);
+          fx('burn', { x: P.x, y: P.y });
+        }
       }
     }
   }
@@ -144,7 +147,8 @@ function spawnPortal(x, y, kind) {
   portal = { x: clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
              y: clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60),
              kind, t: 0, armed: true,
-             accent: kind === 'merchant' ? GOLD : THEMES[Math.min(game.level, 4)].accent };
+             accent: (kind === 'merchant' || kind === 'home')
+               ? GOLD : THEMES[Math.min(game.level, 4)].accent };
 }
 /* ---------- loot chests — the only road to the deep blades ----------
    The ROLL is seeded per save (mulberry32 over hash(save.seed,
@@ -234,6 +238,11 @@ function updatePortal(dt) {
         const target = game.level + 1;
         startTransition(() => loadLevel(target));
       }
+    } else if (portal.kind === 'home') {
+      // the road home — victory earned, honor banked, back to the dojo gate
+      portal = null;
+      playSfx('portal');
+      returnToMenu();
     } else openShop();
   }
 }
@@ -255,9 +264,13 @@ function tryInteract() {
   if (shrine && dist(player.x, player.y, shrine.x, shrine.y) < 80) { openShrine(); return; }
   for (const c of chests)
     if (!c.opened && dist(player.x, player.y, c.x, c.y) < 70) { openChest(c); return; }
-  if (game.mode === 'tomb' && game.tomb && game.tomb.phase === 'choose')
+  if (game.mode === 'tomb' && game.tomb && game.tomb.phase === 'choose') {
+    if (tombAltar && dist(player.x, player.y, tombAltar.x, tombAltar.y) < 85) {
+      openRebirth(); return;
+    }
     for (const tb of tombTablets)
       if (dist(player.x, player.y, tb.x, tb.y) < 80) { startTombTrial(tb.track); return; }
+  }
   if (game.mode === 'training' && kyudoStand &&
       dist(player.x, player.y, kyudoStand.x, kyudoStand.y) < 80) { startKyudoRite(); return; }
 }

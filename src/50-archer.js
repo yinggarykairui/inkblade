@@ -11,32 +11,34 @@ function updateProjectiles(dt) {
            'rgba(43,35,32,.4)', 3);
       continue;
     }
-    if (dist(p.x, p.y, player.x, player.y) < player.r + 4) {
-      if (player.ultCounter && game.ult.run) {
+    // an enemy shaft threatens every blade on the field
+    for (const P of alivePlayers()) {
+      if (p.dead) break;
+      if (dist(p.x, p.y, P.x, P.y) >= P.r + 4) continue;
+      if (!P.p2 && P.ultCounter && game.ult.run) {
         // 月ノ答 — even an arrow is answered
         p.dead = true;
         ultCounterTrigger(game.ult.run, playerUltActor(), Math.atan2(p.vy, p.vx));
-      } else if (player.dodgeInv) {
+      } else if (P.dodgeInv) {
         if (!p.dodgeAwarded) {
           p.dodgeAwarded = true;
-          onPerfectDodge();
+          onPerfectDodge(P);
         }
-      } else if (playerParryActive() && p.deflectable !== false) {
+      } else if (samuraiParryActive(P) && p.deflectable !== false) {
         // the guard meets the arrow — turned to splinters
         p.dead = true;
-        save.stats.parries++;
-        award('deflect');
-        player.riposteT = Math.max(player.riposteT, .9);
+        if (!P.p2) { save.stats.parries++; award('deflect'); }
+        P.riposteT = Math.max(P.riposteT, .9);
         sparks(p.x, p.y, Math.atan2(-p.vy, -p.vx), PAL.pigment.imperialGold, 8);
         addText(p.x, p.y - 14, '弾 parried!', GOLD, 13);
         freeze(.05);
         playSfx('parry');
-      } else if (player.iT <= 0) {
+      } else if (P.iT <= 0) {
         const ang = Math.atan2(p.vy, p.vx);
-        if (damagePlayer(p.dmg || 9, ang, p.kind === 'charged')) {
+        if (damageSamurai(P, p.dmg || 9, ang, p.kind === 'charged')) {
           p.dead = true;
           if (p.chain) {   // storm-touched: the shot discharges on impact
-            boltFX(p.x - p.vx * .06, p.y - p.vy * .06, player.x, player.y);
+            boltFX(p.x - p.vx * .06, p.y - p.vy * .06, P.x, P.y);
             shake(3);
           }
         }
@@ -74,9 +76,11 @@ const ARROW_HOME = {
 function homePArrow(a, dt) {
   // the rite judges the naked eye — no guidance while the straw waits
   if (game.kyudo && game.kyudo.on) return;
-  const surged = ultBuffed();
+  // P1's surge and kyudo ranks guide only P1's shafts; P2 flies untrained
+  const own2 = !!(a.owner && a.owner.p2);
+  const surged = !own2 && ultBuffed();
   const cone = surged ? ARROW_HOME.arcSurge
-    : ARROW_HOME.base + ARROW_HOME.perRank * kyudoRank();
+    : ARROW_HOME.base + (own2 ? 0 : ARROW_HOME.perRank * kyudoRank());
   const head = Math.atan2(a.vy, a.vx);
   let best = null, bestD = ARROW_HOME.range;
   for (const e of enemies) {
@@ -95,46 +99,51 @@ function homePArrow(a, dt) {
   a.vy = Math.sin(head + bend) * speed;
 }
 
-function toggleStance() {   // PvE only; duel fighters carry their own toggles
+function toggleStanceFor(pl) {   // PvE only; duel fighters carry their own toggles
   if (game.state !== 'playing' || game.mode === 'duel') return;
-  if (game.equipped === 'fudemaru') {
-    addText(player.x, player.y - 34, '筆 the brush needs no bow', RED, 13);
+  if (eqOf(pl) === 'fudemaru') {
+    addText(pl.x, pl.y - 34, '筆 the brush needs no bow', RED, 13);
     return;
   }
-  if (player.action || game.ult.run) return;
-  player.stance = player.stance === 'bow' ? 'sword' : 'bow';
-  player.bowDraw = null;
-  player.action = { type: 'swap', t: 0, dur: .35 };
-  const bow = currentBow();
-  addText(player.x, player.y - 30,
-    player.stance === 'bow' ? `弓 ${bow.kanji} ${bow.name} strung` : '刀 blade drawn', INK, 13);
-  puff(player.x, player.y, 'rgba(43,35,32,.4)', 5);
+  if (pl.action || (!pl.p2 && game.ult.run) || pl.downed) return;
+  pl.stance = pl.stance === 'bow' ? 'sword' : 'bow';
+  pl.bowDraw = null;
+  pl.action = { type: 'swap', t: 0, dur: .35 };
+  const bow = bowOf(pl);
+  addText(pl.x, pl.y - 30,
+    pl.stance === 'bow' ? `弓 ${bow.kanji} ${bow.name} strung` : '刀 blade drawn', INK, 13);
+  puff(pl.x, pl.y, 'rgba(43,35,32,.4)', 5);
   playSfx('whoosh');
 }
-function playerDrawing() { return player.stance === 'bow' && !!player.bowDraw; }
+function toggleStance() { toggleStanceFor(player); }
 
-function playerLooseArrow(bow, heldT) {
-  // 弓道 ranks quicken the draw and cheapen its wind (PvE only — this
-  // path is the player's; fighters loose through 55-duel on raw stats)
-  const power = clamp(heldT / (bow.draw * kyudoDrawMul()), .35, 1);
-  const weak = playerExhausted() || game.curses.includes('winded');
-  player.st = Math.max(0, player.st - bow.stCost * kyudoStamMul());
-  player.regenDelay = .6;
-  const dmgMul = upgDmgMul() * (weak ? .55 : 1)
-               * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1)
-               * rarityMult(bow.id) * wxpMult(bow.id);   // bows temper too
+function playerLooseArrow(bow, heldT, pl) {
+  pl = pl || player;
+  // 弓道 ranks quicken the draw and cheapen its wind — for P1. The
+  // second blade shoots duel-raw: no kyudo, no ledger, steel alone.
+  const drawMul = pl.p2 ? 1 : kyudoDrawMul();
+  const stamMul = pl.p2 ? 1 : kyudoStamMul();
+  const power = clamp(heldT / (bow.draw * drawMul), .35, 1);
+  const weak = exhaustedOf(pl) || game.curses.includes('winded');
+  pl.st = Math.max(0, pl.st - bow.stCost * stamMul);
+  pl.regenDelay = .6;
+  const dmgMul = (pl.p2 ? 1
+                 : upgDmgMul() * (charmed('oni') ? 1.2 : 1) * rebirthMult()
+                   * rarityMult(bow.id) * wxpMult(bow.id))
+               * (weak ? .55 : 1) * (hasBless('edge') ? 1.1 : 1);
+  const flatDmg = pl.p2 ? bow.dmg : bow.dmg + tombAtk() + rebirthLevel();
   // repeater: every release is a burst; stormbow: a FULL draw splits in three
   const n = bow.burst || (bow.split && power >= .95 ? bow.split : 1);
   for (let i = 0; i < n; i++) {
     const fan = !bow.burst && n > 1 ? (i - (n - 1) / 2) * .2 : 0;
-    spawnPArrow(player, false, bow, player.face + fan,
-      Math.max(1, Math.round(bow.dmg * power * dmgMul)),
+    spawnPArrow(pl, false, bow, pl.face + fan,
+      Math.max(1, Math.round(flatDmg * power * dmgMul)),
       bow.speed * (.7 + .3 * power),
       bow.burst ? i * .09 : 0);
   }
   playSfx('bow');
-  fx('arrowLoose', { owner: player, x: player.x + Math.cos(player.face) * 18,
-                     y: player.y + Math.sin(player.face) * 18, ang: player.face });
+  fx('arrowLoose', { owner: pl, x: pl.x + Math.cos(pl.face) * 18,
+                     y: pl.y + Math.sin(pl.face) * 18, ang: pl.face });
 }
 function spawnPArrow(owner, pvp, bow, ang, dmg, speed, delay) {
   pArrows.push({
@@ -231,10 +240,12 @@ function updatePArrows(dt) {
                  Math.atan2(a.vy, a.vx), undefined, 6);
           fx('arrowImpact', { owner: a.owner, x: a.x, y: a.y,
                               ang: Math.atan2(a.vy, a.vx), bowId: a.bowId });
-          grantWeaponXP(a.bowId, a.dmg / stageMult(curStage()));
+          if (!(a.owner && a.owner.p2)) {   // P2 is progression-free
+            grantWeaponXP(a.bowId, a.dmg / stageMult(curStage()));
+            addUlt(2);   // bows feed the 奥義 at a reduced rate
+          }
           if (pb) addText(e.x, e.y - e.r - 24, 'too close!', 'rgba(43,35,32,.6)', 11);
-          addUlt(2);   // bows feed the 奥義 at a reduced rate
-          if (a.burn) spawnBurn(a.x, a.y, player, false);
+          if (a.burn) spawnBurn(a.x, a.y, a.owner || player, false);
           if (blocked || a.pierce <= 0) a.dead = true;
           else a.pierce--;   // the longbow's shaft carries on
           break;

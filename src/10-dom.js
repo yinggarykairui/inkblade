@@ -289,7 +289,9 @@ paintBG(0);
 
 /* ---------- input ---------- */
 const keys = Object.create(null);
-let attackBuf = 0, dodgeBuf = 0, parryBuf = 0;   // input buffers (seconds remaining)
+/* input buffers live ON the player entities now (co-op needs two sets);
+   these shims keep old expressions compiling if any linger */
+let attackBuf = 0, dodgeBuf = 0, parryBuf = 0;   // legacy — unused, see player.attackBuf
 // virtual-stick state — populated by the touch layer when a finger drives movement
 const touch = { active: false, mx: 0, my: 0, enabled: false };
 addEventListener('keydown', e => {
@@ -303,10 +305,19 @@ addEventListener('keydown', e => {
     // Fudemaru casts on release so the hold duration can pick the symbol
     if (game.equipped === 'fudemaru' && game.state === 'playing' && game.mode !== 'duel') {
       player.vHeld = true; player.vDownAt = game.time;
-    } else attackBuf = 0.18;
+    } else player.attackBuf = 0.18;
   }
-  if (k === 'Shift') dodgeBuf = 0.18;
-  if ((k === 'c' || k === 'C') && !e.repeat) parryBuf = 0.18;
+  if (k === 'Shift') player.dodgeBuf = 0.18;
+  if ((k === 'c' || k === 'C') && !e.repeat) player.parryBuf = 0.18;
+  // couch co-op: the second blade answers the duel-style row —
+  // U slash · I roll · O parry · P bow-stance · , meditate (held)
+  if (game.coop && p2 && game.state === 'playing' && game.mode !== 'duel' && !e.repeat) {
+    const ck = k.length === 1 ? k.toLowerCase() : k;
+    if (ck === 'u') p2.attackBuf = 0.18;
+    if (ck === 'i') p2.dodgeBuf = 0.18;
+    if (ck === 'o') p2.parryBuf = 0.18;
+    if (ck === 'p') toggleStanceFor(p2);
+  }
   if (game.mode === 'duel' && game.state === 'playing' && duel) {
     const lk = k.length === 1 ? k.toLowerCase() : k;
     if (net && net.started) {
@@ -346,7 +357,8 @@ addEventListener('keydown', e => {
   if ((k === 'r' || k === 'R' || k === ' ') && !e.repeat) activateUlt();
   if ((k === 'q' || k === 'Q') && !e.repeat) toggleStance();
   if ((k === 'l' || k === 'L') && !e.repeat) toggleUlt();
-  if ((k === 'u' || k === 'U') && !e.repeat) toggleBrushSwap();
+  if ((k === 'u' || k === 'U') && !e.repeat && !(game.coop && game.mode !== 'duel'))
+    toggleBrushSwap();   // in co-op, U belongs to the second blade
   if (k === 'Enter') {
     if (document.activeElement === document.getElementById('sealInput')) return;
     if (game.state === 'title') beginRun();
@@ -356,6 +368,7 @@ addEventListener('keydown', e => {
     if (game.state === 'shop') closeShop();
     else if (game.state === 'shrine') closeShrine();
     else if (game.state === 'records' || game.state === 'settings') closeMetaOverlay();
+    else if (game.state === 'rebirth') closeRebirth();
     else if (game.state === 'playing') pauseGame();
     else if (game.state === 'paused') resumeGame();
   }
@@ -405,7 +418,7 @@ cv.addEventListener('mousedown', e => {
   // the bow reads the held state, the blade buffers a slash
   if (game.equipped === 'fudemaru') {
     player.vHeld = true; player.vDownAt = game.time;
-  } else attackBuf = 0.18;
+  } else player.attackBuf = 0.18;
 });
 addEventListener('mouseup', e => {
   if (e.button !== 0 || !mouse.down) return;
@@ -457,10 +470,10 @@ function touchAction(id) {
   }
   if (id === 'atk') {
     if (game.equipped === 'fudemaru') { player.vHeld = true; player.vDownAt = game.time; }
-    else if (player.stance === 'sword') attackBuf = .18;
+    else if (player.stance === 'sword') player.attackBuf = .18;
     // bow stance: the held 斬 button itself bends the string (see updatePlayer)
-  } else if (id === 'roll') dodgeBuf = .18;
-  else if (id === 'parry') parryBuf = .18;
+  } else if (id === 'roll') player.dodgeBuf = .18;
+  else if (id === 'parry') player.parryBuf = .18;
   else if (id === 'ult') activateUlt();
   else if (id === 'stance') toggleStance();
 }

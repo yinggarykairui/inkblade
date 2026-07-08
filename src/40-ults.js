@@ -38,11 +38,18 @@ function ultReady() {
   return game.equipped === 'fudemaru' || game.ult.meter >= game.ult.max;
 }
 function addUlt(n) {
+  // even a sealed meter fills — wanting is the engine of the cycle
   if (game.ult.run || game.ult.buffT > 0 || game.mode === 'duel') return;
   game.ult.meter = Math.min(game.ult.max, game.ult.meter + n);
 }
 function activateUlt() {
   if (game.state !== 'playing' || player.hp <= 0 || game.mode === 'duel') return;
+  // the seal holds in real trials — but the training yard is a sandbox:
+  // learn every art against the straw before the cycle earns it for real
+  if (!ultUnlocked() && game.mode !== 'training') {
+    addText(player.x, player.y - 30, '奥義 sealed — 転生 be reborn to open the gate', RED, 13);
+    return;
+  }
   if (!ultReady()) return;
   // the art always ends on steel: a drawn bow snaps back to the blade
   if (player.stance === 'bow') { player.stance = 'sword'; player.bowDraw = null; }

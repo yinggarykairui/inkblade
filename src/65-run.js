@@ -21,6 +21,7 @@ const game = {
   // 奥義 player ultimate — `run` is the scripted art, `buffT` the surge
   // after, `env` the 0..1 color-bleed envelope the renderer rides
   ult: { meter: 0, max: 100, run: null, buffT: 0, env: 0 },
+  coop: false,          // 二人 — a second blade walks the endless storm
 };
 function addHonor(n, x, y, label) {
   game.honor += n;
@@ -41,6 +42,7 @@ const overlays = {
   shrine: document.getElementById('shrineOverlay'),
   records: document.getElementById('recordsOverlay'),
   settings: document.getElementById('settingsOverlay'),
+  rebirth: document.getElementById('rebirthOverlay'),
 };
 function pauseGame() {
   game.state = 'paused';          // render-only: the whole fight freezes
@@ -68,6 +70,12 @@ function curStage() {
 function waveMults() {
   const D = game.diff, base = 1 + (D - 1) * 0.15;
   const m = { hp: base, dmg: base, proj: 1 + (D - 1) * .05, honor: 1 + (D - 1) * .25 };
+  // 転生 the world remembers — each cycle the foes harden by 8%, so the
+  // ×1.5 of rebirth nets strongly positive without unmaking the game
+  const wr = 1 + .08 * rebirthLevel();
+  m.hp *= wr; m.dmg *= wr;
+  // 二人 two blades share one storm — the foes stand harder for it
+  if (game.coop) m.hp *= 1.6;
   if (game.mode === 'campaign') {
     // THE curve, split the ARPG way: enemy HP rides the full 1.15^n (the
     // player's ~805× damage growth chases it), but enemy DAMAGE rides
@@ -85,9 +93,10 @@ function waveMults() {
     m.honor *= 1 + (w - 1) * .10;
   }
   // curses sweeten the pot — each burden multiplies the payout
+  // (cycle 7's Sweetened Burdens doubles what every curse pays)
   for (const cid of game.curses) {
     const c = CURSES.find(x => x.id === cid);
-    if (c) m.honor *= 1 + c.bonus;
+    if (c) m.honor *= 1 + c.bonus * (rebirthLevel() >= 7 ? 2 : 1);
   }
   return m;
 }
@@ -115,7 +124,7 @@ function wallSpot() {
     else if (side === 1) { x = rand(ARENA.x + 40, ARENA.x + ARENA.w - 40); y = ARENA.y + ARENA.h - 40; }
     else if (side === 2) { x = ARENA.x + 40; y = rand(ARENA.y + 40, ARENA.y + ARENA.h - 40); }
     else { x = ARENA.x + ARENA.w - 40; y = rand(ARENA.y + 40, ARENA.y + ARENA.h - 40); }
-  } while (dist(x, y, player.x, player.y) < 220 && ++tries < 20);
+  } while (allPlayers().some(P => dist(x, y, P.x, P.y) < 220) && ++tries < 20);
   return { x, y };
 }
 function spawnComp(comp, meleeCap) {
@@ -210,7 +219,7 @@ const CURSES = [
 ];
 
 /* ---------- run flow ---------- */
-const menuSel = { mode: 'level', diff: 1, level: 1, chaos: false, map: 0,
+const menuSel = { mode: 'level', diff: 1, level: 1, chaos: false, map: 0, coop: false,
                   p1Blade: 'tetsu', p2Blade: 'tetsu', curses: [],
                   p1Bow: 'shortbow', p2Bow: 'shortbow',
                   duelOpp: 'human', duelArena: 0,
@@ -258,6 +267,11 @@ function startRun(mode) {
   shrine = null; game.kyudo = null; kyudoStand = null;
   shakeMag = 0; hitStop = 0;
   enemies = [];
+  // 二人 couch co-op — the second blade stands only in the endless storm
+  // and the boss rushes; every other door remains a solo trial. P2 is
+  // duel-style raw: menu picks, no progression, and never a save write.
+  game.coop = !!menuSel.coop && (mode === 'infinite' || mode === 'rush');
+  p2 = game.coop ? makeP2(menuSel.p2Blade, menuSel.p2Bow) : null;
   if (mode === 'level') {
     game.level = menuSel.level;
     loadLevel(game.level);
@@ -293,6 +307,8 @@ function startRun(mode) {
       { track: 'stance', x: ARENA.x + ARENA.w * .5,  y: ARENA.y + 115 },
       { track: 'edge',   x: ARENA.x + ARENA.w * .75, y: ARENA.y + 140 },
     ];
+    // the rebirth altar waits apart from the stat tablets, in the east
+    tombAltar = { x: ARENA.x + ARENA.w * .9, y: ARENA.y + ARENA.h * .5 };
     player.x = ARENA.x + ARENA.w / 2; player.y = ARENA.y + ARENA.h - 130;
     setBanner('墓 the Tomb of the Fallen — offer honor at an ancestor tablet', 2.8);
   } else if (mode === 'training') {
@@ -342,7 +358,9 @@ function startInfiniteWave(first) {
   const arenaIdx = Math.floor((w - 1) / 5) % 5;
   if (arenaIdx !== themeIndex || first) setTheme(arenaIdx);
   portal = null;
-  if (!first) { player.hp = Math.min(player.maxHp, player.hp + 20); player.st = player.maxSt; }
+  if (!first) for (const P of allPlayers()) {
+    P.hp = Math.min(P.maxHp, P.hp + 20); P.st = P.maxSt;
+  }
   if (w % 5 === 0) {
     const bossIdx = (w / 5 - 1) % 5;
     const lap = Math.floor((w / 5 - 1) / 5);       // each boss lap stacks a further bump
@@ -405,7 +423,10 @@ function fmtTime(t) {
 function rushComplete() {
   bankOrbs();
   const first = save.bestRushTime == null;
-  if (first || game.rushTime < save.bestRushTime) save.bestRushTime = game.rushTime;
+  if (first || game.rushTime < save.bestRushTime) {
+    save.bestRushTime = game.rushTime;
+    save.recCycles.rush = rebirthLevel();   // records remember their cycle
+  }
   if (game.rushTime < 300) award('gauntletFast');
   persistSave();
   game.state = 'gameover';
@@ -426,20 +447,23 @@ function rushComplete() {
    Cost(S) = 300 × 1.5^S PER TRACK; a hit-scarred trial refunds 60% —
    the same "the ink flows back" language as a broken 奥義 windup.       */
 let tombTablets = [];
+let tombAltar = null;   // 転生 — the fourth stone, where lives end and begin
 const TOMB_TRACKS = {
-  body:   { kanji: '体', name: 'Iron Body',    desc: 'max health toward ×10' },
-  stance: { kanji: '姿', name: 'Set Stance',   desc: 'posture damage toward ×10' },
-  edge:   { kanji: '刃', name: 'Killing Edge', desc: 'criticals 1.5× toward 3.0×' },
+  body:   { kanji: '体', name: 'Iron Body',    desc: '+6 health each step' },
+  stance: { kanji: '姿', name: 'Set Stance',   desc: '+2 posture damage each step' },
+  edge:   { kanji: '刃', name: 'Killing Edge', desc: '+1 attack each step' },
 };
+// the current flat total a track has bought — shown on tablets and the stat wall
+function tombFlatLabel(track) {
+  return track === 'body' ? `+${tombHp()} health`
+       : track === 'stance' ? `+${tombPosture()} posture`
+       : `+${tombAtk()} attack`;
+}
 function tombSessions() {
   return (save.tomb.body || 0) + (save.tomb.stance || 0) + (save.tomb.edge || 0);
 }
 function startTombTrial(track) {
-  const done = save.tomb[track] || 0;
-  if (done >= 10) {
-    addText(player.x, player.y - 30, 'this path is already walked', 'rgba(43,35,32,.6)', 13);
-    return;
-  }
+  // steps are uncapped now — flat gains, ever-dearer, never a wall
   const cost = tombCost(track);
   if (game.honor < cost) {
     addText(player.x, player.y - 30, `the tablet asks 誉 ${fmtNum(cost)}`, RED, 13);
@@ -476,7 +500,8 @@ function updateTomb(dt) {
   if (T.phase === 'ghosts') {
     if (T.t > 24) { tombFail('the incense burned out'); return; }
     if (!enemies.some(e => !e.dead)) {
-      if (T.scars > 0) { tombFail('the ghosts drew blood'); return; }
+      // cycle 9's Patient Ancestor forgives a single scar
+      if (T.scars > (rebirthLevel() >= 9 ? 1 : 0)) { tombFail('the ghosts drew blood'); return; }
       if (T.round < 3) {
         T.round++;
         T.t = 0;
@@ -497,12 +522,12 @@ function updateTomb(dt) {
       const off = Math.abs(T.needle);
       const grade = off < .18 ? 1 : off < .42 ? .8 : 0;
       if (grade === 0) { tombFail('the breath broke'); return; }
-      save.tomb[T.track] = Math.min(10, (save.tomb[T.track] || 0) + grade);
+      save.tomb[T.track] = (save.tomb[T.track] || 0) + grade;
       refreshPlayerStats();
       persistSave();
       const tr = TOMB_TRACKS[T.track];
       setBanner(`${tr.kanji} ${tr.name} — ${grade === 1 ? 'a full step' : 'a shaky step'} ` +
-        `(${save.tomb[T.track].toFixed(1)}/10 · ×${tombMult(T.track).toFixed(2)})`, 3);
+        `(${save.tomb[T.track].toFixed(1)} steps · ${tombFlatLabel(T.track)})`, 3);
       particles.push({ kind: 'ring', x: player.x, y: player.y, t: 0, life: .6,
         color: 'rgba(245,194,66,.85)', r0: 12, r1: 160, w: 3 });
       playSfx('achieve');
@@ -681,6 +706,7 @@ function startCampaignStage(first) {
 }
 function onWaveCleared() {
   adapt.decay();
+  if (game.coop) reviveDowned();   // the fallen stand once the wave breaks
   if (game.mode === 'campaign') {
     save.maps.best[game.map] = Math.max(save.maps.best[game.map] || 0, game.cStage);
     const p = game.lastBossDeath ||
@@ -693,6 +719,7 @@ function onWaveCleared() {
       game.victory = true;
       merchant = { x: clamp(p.x + 150, ARENA.x + 90, ARENA.x + ARENA.w - 90),
                    y: clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90) };
+      spawnPortal(p.x - 150, p.y, 'home');   // the road home stands open
       setBanner(game.map + 1 < MAP_COUNT
         ? 'the map is cleared — a deeper one unfurls'
         : 'the fifth map falls silent — the ledger is complete', 3.2);
@@ -720,12 +747,14 @@ function onWaveCleared() {
       const p = game.lastBossDeath ||
         { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
       if (game.level >= 5) {
-        // in lieu of a portal: the game's only friendly face
+        // the game's only friendly face — and, at last, the road home
         save.merchantUnlocked = true;
         game.victory = true;
+        const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
         merchant = { x: clamp(p.x, ARENA.x + 90, ARENA.x + ARENA.w - 90),
                      y: clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90) };
-        setBanner('the storm breaks — the trial is complete', 3.2);
+        spawnPortal(p.x + side * 170, p.y, 'home');
+        setBanner('the storm breaks — the trial is complete · the road home stands open', 3.2);
       } else {
         spawnPortal(p.x, p.y, 'next');
         // the merchant sets up beside every rift — trade before you step through
@@ -746,15 +775,20 @@ function onWaveCleared() {
       persistSave();
     }
   } else if (game.mode === 'rush') {
-    player.hp = Math.min(player.maxHp, player.hp + (game.chaos ? 35 : 50));
-    player.st = player.maxSt;
+    for (const P of allPlayers()) {
+      P.hp = Math.min(P.maxHp, P.hp + (game.chaos ? 35 : 50));
+      P.st = P.maxSt;
+    }
     game.stage++;
     if (game.chaos && game.stage >= 10) award('chaos10');
     persistSave();
     if (!game.chaos && game.stage > 5) rushComplete();
     else startRushStage();
   } else if (game.mode === 'infinite') {
-    save.deepestWave = Math.max(save.deepestWave, game.wave);
+    if (game.wave > save.deepestWave) {
+      save.deepestWave = game.wave;
+      save.recCycles.wave = rebirthLevel();
+    }
     if (game.wave >= 20) award('wave20');
     persistSave();
     game.wave++;
@@ -773,15 +807,22 @@ function gameOver() {
   let statLine;
   if (game.mode === 'rush') {
     if (game.chaos) {
-      save.bestChaosStage = Math.max(save.bestChaosStage, game.stage);
+      if (game.stage > save.bestChaosStage) {
+        save.bestChaosStage = game.stage;
+        save.recCycles.chaos = rebirthLevel();
+      }
       statLine = `You fell on chaos stage <b>${game.stage}</b> (×${game.diff})`;
     } else {
       statLine = `You fell to <b>${BOSS_NAMES[Math.min(game.stage, 5) - 1]}</b> — stage <b>${Math.min(game.stage, 5)}/5</b> (×${game.diff})`;
     }
   } else if (game.mode === 'infinite') {
-    save.deepestWave = Math.max(save.deepestWave, game.wave);
+    if (game.wave > save.deepestWave) {
+      save.deepestWave = game.wave;
+      save.recCycles.wave = rebirthLevel();
+    }
     save.highScores.push({ wave: game.wave, honor: game.honorEarned,
-                           diff: game.diff, date: new Date().toISOString().slice(0, 10) });
+                           diff: game.diff, cycle: rebirthLevel(),
+                           date: new Date().toISOString().slice(0, 10) });
     save.highScores.sort((a, b) => b.wave - a.wave || b.honor - a.honor);
     save.highScores = save.highScores.slice(0, 5);
     statLine = `You fell on wave <b>${game.wave}</b> of the endless storm (×${game.diff})`;
@@ -800,7 +841,8 @@ function scoreListHTML() {
   if (!save.highScores.length) return '';
   let h = `deepest wave reached: <b>${save.deepestWave}</b><br>`;
   save.highScores.forEach((sc, i) => {
-    h += `${i + 1}. wave <b>${sc.wave}</b> · 誉 ${sc.honor} · ×${sc.diff} · ${sc.date}<br>`;
+    h += `${i + 1}. wave <b>${sc.wave}</b> · 誉 ${sc.honor} · ×${sc.diff}` +
+         `${sc.cycle ? ' · c' + sc.cycle : ''} · ${sc.date}<br>`;
   });
   return h;
 }
@@ -816,6 +858,7 @@ function returnToMenu() {
   portal = null; merchant = null; transition = null; storm = null; duel = null;
   shrine = null; game.kyudo = null; kyudoStand = null;
   enemies = []; projectiles = []; shockwaves = []; blackholes = [];
+  p2 = null; game.coop = false;   // the second blade bows out at the door
   setTheme(0);
   resetPlayer();
   renderMenu();

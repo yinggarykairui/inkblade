@@ -577,18 +577,29 @@ function drawBlade(p, ang, len, wpn, act) {
   ctx.lineTo(gx - nx * 3.5, gy - ny * 3.5);
   ctx.stroke();
 }
-function drawPlayer() {
-  const p = player;
+function drawPlayer(pl) {
+  const p = pl || player;   // co-op: the same brush paints both blades
   drawShadow(p.x, p.y, p.r);
-  if (game.ult.run) drawUltRun(game.ult.run, p);   // windup telegraphs & stance glow
-  if (game.ult.env > 0 && game.mode !== 'duel')
+  // the fallen kneel — a faded silhouette waiting for the wave to break
+  if (p.downed) {
+    ctx.globalAlpha = .45;
+    ctx.fillStyle = CREAM; ctx.strokeStyle = INK; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y + 3, p.r * .85, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = RED;
+    ctx.font = '13px Georgia,serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('倒', p.x, p.y - p.r - 14);
+    ctx.globalAlpha = 1;
+    return;
+  }
+  if (!p.p2 && game.ult.run) drawUltRun(game.ult.run, p);   // windup telegraphs & stance glow
+  if (!p.p2 && game.ult.env > 0 && game.mode !== 'duel')
     drawUltWings(p.x, p.y, p.face, game.equipped, p.r, game.ult.env);
   // hurt-iframe blink
   if (p.iT > 0 && Math.sin(game.time * 40) > 0) ctx.globalAlpha = .45;
   // roll: squash + motion streaks — neon dashes while the 奥義 burns
   const rolling = p.action && p.action.type === 'dodge';
   if (rolling) {
-    if (ultActive()) {
+    if (!p.p2 && ultActive()) {
       neonRollStreaks(p.x, p.y, p.action.dx, p.action.dy, p.r, weaponNeon(game.equipped));
     } else {
       ctx.strokeStyle = 'rgba(43,35,32,.3)'; ctx.lineWidth = 2;
@@ -599,12 +610,29 @@ function drawPlayer() {
       }
     }
   }
+  // 虚 hollow — a gray gasp of a ring while the lungs are empty
+  if (p.hollowT > 0) {
+    ctx.strokeStyle = 'rgba(43,35,32,.4)'; ctx.lineWidth = 1.6;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 7 + Math.sin(game.time * 9) * 2, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(43,35,32,.55)';
+    ctx.font = '12px Georgia,serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('虚', p.x, p.y - p.r - 16);
+  }
   // body
   ctx.fillStyle = p.flashT > 0 ? REDHOT : CREAM;
   ctx.strokeStyle = INK; ctx.lineWidth = 3.5;
   ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill(); ctx.stroke();
-  // headband + trailing ribbon — gold for the tournament champion
-  ctx.strokeStyle = save.headband === 'gold' ? GOLD : RED;
+  // headband + trailing ribbon — gold for the tournament champion.
+  // Ten lives brushed in gold: the cycle-10 stroke rides beneath it.
+  if (!p.p2 && rebirthLevel() >= 10) {
+    ctx.strokeStyle = 'rgba(245,194,66,.8)'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 3.5, p.face - .7, p.face + .7); ctx.stroke();
+  }
+  // the second blade wears ink, not cinnabar — told apart by value
+  ctx.strokeStyle = p.p2 ? 'rgba(43,35,32,.85)'
+                  : save.headband === 'gold' ? GOLD : RED;
   ctx.lineWidth = 3; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.arc(p.x, p.y, p.r - 3, p.face + 2.4, p.face + 3.9); ctx.stroke();
   ctx.lineWidth = 2;
@@ -625,7 +653,7 @@ function drawPlayer() {
   ctx.fill();
   // sword — rendered per equipped weapon
   const a = p.action;
-  const wpn = currentWeapon();
+  const wpn = wpnOf(p);
   ctx.lineCap = 'round';
   let bladeAng = p.face + .55, bladeLen = 26;
   if (a && a.type === 'attack') {
@@ -689,7 +717,7 @@ function drawPlayer() {
     ctx.setLineDash([]);
   }
   if (p.stance === 'bow' && wpn.id !== 'fudemaru') {
-    drawEntityBow(p, currentBow(), p.bowDraw, false);
+    drawEntityBow(p, bowOf(p), p.bowDraw, false);
   } else drawBlade(p, bladeAng, bladeLen, wpn, a);
   // Fudemaru hold-charge: the ring grows, the coming symbol shows itself
   if (wpn.id === 'fudemaru' && p.vHeld && game.state === 'playing') {
@@ -758,7 +786,8 @@ function drawPortalFX() {
   ctx.beginPath(); ctx.ellipse(0, 0, 8 * pulse, 30 * pulse, 0, 0, TAU); ctx.stroke();
   ctx.fillStyle = p.accent;
   ctx.font = 'italic 12px Georgia,serif'; ctx.textAlign = 'center';
-  ctx.fillText(p.kind === 'merchant' ? 'the stall' : 'onward', 0, 64);
+  ctx.fillText(p.kind === 'merchant' ? 'the stall'
+             : p.kind === 'home' ? '帰 the road home' : 'onward', 0, 64);
   ctx.restore();
 }
 function drawMerchant() {
@@ -891,10 +920,38 @@ function drawTombTablets() {
     ctx.fillStyle = steps >= 10 ? GOLD : INK;
     ctx.font = 'italic 11px Georgia,serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(steps >= 10
-      ? `${tr.name} — the path is walked`
-      : `${tr.name} · ${steps.toFixed(1)}/10 · 誉 ${fmtNum(tombCost(tb.track))}`,
+    ctx.fillText(
+      `${tr.name} · ${tombFlatLabel(tb.track)} · 誉 ${fmtNum(tombCost(tb.track))}`,
       tb.x, tb.y + 44);
+  }
+  // 転生 the rebirth altar — a torii of ink standing apart in the east
+  if (tombAltar) {
+    const ax = tombAltar.x, ay = tombAltar.y;
+    const gateOpen = (save.maxLevelCleared || 0) >= 5;
+    drawShadow(ax, ay + 26, 24);
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-20, 28); ctx.lineTo(-16, -18);
+    ctx.moveTo(20, 28); ctx.lineTo(16, -18);
+    ctx.stroke();
+    ctx.lineWidth = 3.4;
+    ctx.beginPath(); ctx.moveTo(-30, -20); ctx.quadraticCurveTo(0, -28, 30, -20); ctx.stroke();
+    ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(-22, -8); ctx.lineTo(22, -8); ctx.stroke();
+    ctx.fillStyle = gateOpen ? RED : 'rgba(43,35,32,.45)';
+    ctx.font = '15px Georgia,serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('転', 0, 10);
+    ctx.restore();
+    ctx.fillStyle = gateOpen ? GOLD : 'rgba(43,35,32,.55)';
+    ctx.font = 'italic 11px Georgia,serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(gateOpen
+      ? `転生 rebirth · cycle ${rebirthLevel()} — the altar answers`
+      : '転生 rebirth · the fifth lord still stands',
+      ax, ay + 48);
   }
 }
 /* 弓道 the archery rite — the wooden stand, and the straw ring while the
@@ -1012,8 +1069,48 @@ function drawHUD() {
     ctx.fillStyle = RED; ctx.font = 'italic 12px Georgia,serif';
     ctx.fillText('winded — blade weakened', bx + 20 + stw + 10, sy + bh / 2);
   }
-  // 奥 ultimate meter — neon; drains as a duration bar while the surge runs
-  if (game.mode !== 'duel') {
+  if (player.downed) {
+    ctx.fillStyle = RED; ctx.font = 'italic 12px Georgia,serif';
+    ctx.fillText('倒 fallen — clear the wave', bx + 20 + hpw + 10, by + bh / 2);
+  }
+  // 二人 — the second blade's ledger, a slimmer stack beneath the first
+  if (game.coop && p2) {
+    const py = by + 68, pw = 150, ph = 10;
+    ctx.font = '14px Georgia,serif'; ctx.textAlign = 'left';
+    ctx.fillStyle = INK;
+    ctx.fillText('弐', bx - 2, py + ph / 2);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
+    ctx.strokeRect(bx + 20, py, pw, ph);
+    ctx.fillStyle = 'rgba(43,35,32,.12)'; ctx.fillRect(bx + 20, py, pw, ph);
+    ctx.fillStyle = RED;
+    ctx.fillRect(bx + 21, py + 1, (pw - 2) * clamp(p2.hp / p2.maxHp, 0, 1), ph - 2);
+    const py2 = py + 15;
+    ctx.strokeRect(bx + 20, py2, pw, ph);
+    ctx.fillStyle = 'rgba(43,35,32,.12)'; ctx.fillRect(bx + 20, py2, pw, ph);
+    ctx.fillStyle = exhaustedOf(p2) && Math.sin(game.time * 16) > 0 ? RED : '#857b6c';
+    ctx.fillRect(bx + 21, py2 + 1, (pw - 2) * clamp(p2.st / p2.maxSt, 0, 1), ph - 2);
+    if (p2.downed) {
+      ctx.fillStyle = RED; ctx.font = 'italic 12px Georgia,serif';
+      ctx.fillText('倒 fallen — clear the wave', bx + 20 + pw + 10, py + ph / 2);
+    }
+  }
+  // 奥 ultimate meter — neon; drains as a duration bar while the surge runs.
+  // Until the first rebirth the gate is closed: the meter still FILLS —
+  // grayed behind the seal — but only the training yard lets it speak.
+  if (game.mode !== 'duel' && game.mode !== 'training' && !ultUnlocked()) {
+    const uy = by + 42, uw = 190;
+    ctx.fillStyle = 'rgba(43,35,32,.45)'; ctx.font = '15px Georgia,serif';
+    ctx.fillText('奥', bx - 2, uy + bh / 2);
+    ctx.strokeStyle = 'rgba(43,35,32,.45)'; ctx.lineWidth = 2;
+    ctx.strokeRect(bx + 20, uy, uw, bh);
+    ctx.fillStyle = 'rgba(43,35,32,.08)';
+    ctx.fillRect(bx + 20, uy, uw, bh);
+    const sfrac = clamp(game.ult.meter / game.ult.max, 0, 1);
+    ctx.fillStyle = 'rgba(43,35,32,.28)';   // ashen ink — power owned, unspendable
+    ctx.fillRect(bx + 21, uy + 1, (uw - 2) * sfrac, bh - 2);
+    ctx.fillStyle = 'rgba(43,35,32,.5)'; ctx.font = 'italic 11px Georgia,serif';
+    ctx.fillText('封 sealed — 転生 opens the gate', bx + 20 + uw + 10, uy + bh / 2);
+  } else if (game.mode !== 'duel') {
     const uy = by + 42, uw = 190;
     const nz = weaponNeon(game.equipped);
     ctx.fillStyle = INK; ctx.font = '15px Georgia,serif';
@@ -1166,11 +1263,23 @@ function drawHUD() {
   }
   if (game.equipped === 'ame' && game.ameStacks > 0)
     bladeLabel += `  · tempo ×${game.ameStacks}`;
-  if (save.charm && game.mode !== 'duel') {
-    const ch = CHARMS.find(c => c.id === save.charm);
-    if (ch) bladeLabel += `   ${ch.kanji} ${ch.name}${game.omamoriUsed && ch.id === 'omamori' ? ' (spent)' : ''}`;
+  if (game.mode !== 'duel') {
+    const worn = [save.charm, rebirthLevel() >= 6 ? save.charm2 : null];
+    for (const id of worn) {
+      const ch = id && CHARMS.find(c => c.id === id);
+      if (ch) bladeLabel += `   ${ch.kanji} ${ch.name}${game.omamoriUsed && ch.id === 'omamori' ? ' (spent)' : ''}`;
+    }
   }
   ctx.fillText(bladeLabel, 30, H - 20);
+  // the second blade's arm — quiet, bottom right
+  if (game.coop && p2) {
+    const w2 = wpnOf(p2);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = w2.legendary ? GOLD : INK;
+    const b2 = p2.stance === 'bow' ? bowOf(p2) : w2;
+    ctx.fillText(`弐 ${b2.kanji} ${b2.name} — ${b2.epithet}`, W - 34, H - 20);
+    ctx.textAlign = 'left';
+  }
   // earned blessings — a quiet gold row above the blade
   if (game.blessings.length) {
     ctx.fillStyle = GOLD;
@@ -1214,7 +1323,7 @@ function drawHUD() {
     ctx.fillText('E — begin the archery rite', W / 2, H - 46);
   }
   if (game.mode === 'tomb' && game.tomb) {
-    if (game.tomb.phase === 'choose' && game.state === 'playing')
+    if (game.tomb.phase === 'choose' && game.state === 'playing') {
       for (const tb of tombTablets)
         if (dist(player.x, player.y, tb.x, tb.y) < 80) {
           ctx.font = 'italic 14px Georgia,serif'; ctx.textAlign = 'center';
@@ -1222,6 +1331,36 @@ function drawHUD() {
           ctx.fillText('E — offer the toll and face the trial', W / 2, H - 46);
           break;
         }
+      if (tombAltar && dist(player.x, player.y, tombAltar.x, tombAltar.y) < 85) {
+        ctx.font = 'italic 14px Georgia,serif'; ctx.textAlign = 'center';
+        ctx.fillStyle = GOLD;
+        ctx.fillText('E — read the rebirth scroll', W / 2, H - 46);
+      }
+      // the stat wall — a swords-and-souls ledger of what the tomb has bought
+      const rows = [
+        ['刃', 'attack', `+${tombAtk() + rebirthLevel()}`, tombSteps('edge')],
+        ['体', 'vitality', `${player.maxHp} hp`, tombSteps('body')],
+        ['姿', 'posture', `+${tombPosture()}`, tombSteps('stance')],
+      ];
+      const px0 = 30, py0 = 132, rw = 200;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.font = 'italic 12px Georgia,serif'; ctx.fillStyle = 'rgba(43,35,32,.6)';
+      ctx.fillText(`力 the ledger of the body · 転生 ×${rebirthMult().toFixed(2)}`,
+        px0, py0 - 16);
+      rows.forEach((r, i) => {
+        const y = py0 + i * 24;
+        ctx.fillStyle = INK; ctx.font = '14px Georgia,serif';
+        ctx.fillText(r[0], px0, y);
+        ctx.font = 'italic 12px Georgia,serif';
+        ctx.fillText(r[1], px0 + 22, y);
+        ctx.strokeStyle = 'rgba(43,35,32,.4)'; ctx.lineWidth = 1.5;
+        ctx.strokeRect(px0 + 84, y - 6, rw - 84, 12);
+        ctx.fillStyle = 'rgba(168,132,58,.55)';
+        ctx.fillRect(px0 + 85, y - 5, (rw - 86) * Math.min(1, r[3] / 30), 10);
+        ctx.fillStyle = INK; ctx.font = '12px Georgia,serif';
+        ctx.fillText(r[2], px0 + rw + 8, y);
+      });
+    }
     if (game.tomb.phase === 'breath') {
       // the breath meter: a drifting needle, one gold band, one chance
       const bw = 320, bx0 = W / 2 - bw / 2, by0 = H - 92;
@@ -1461,7 +1600,10 @@ function draw() {
   }
   if (game.mode === 'duel' && duel) {
     drawFighter(duel.p1); drawFighter(duel.p2);
-  } else if (game.state !== 'gameover') drawPlayer();
+  } else if (game.state !== 'gameover') {
+    if (game.coop && p2) drawPlayer(p2);   // the second blade walks beneath
+    drawPlayer(player);
+  }
   for (const st of stalks) if (!st.dead) drawStalk(st);
   // particles
   for (const p of particles) {
