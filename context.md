@@ -83,9 +83,16 @@ Files in `/Users/kairuki/Desktop/2DGame/`:
    `save.adminUnlocked`; typing the code again closes the seal and reverts
    the blade. `loadSave` only allows `save.equipped === 'fudemaru'` while
    the seal stands.
-6. **Online determinism**: nothing in `updateFighter` or the duel update branch
-   may make gameplay decisions from unseeded `Math.random` (cosmetic particles
-   are fine). Online duels lock to arena 0 for this reason.
+6. **Online determinism — THE TWO DICE (widened 2026-07-08 for online
+   co-op)**: the SIM rolls only through `rand()`/`srandom()` (00-util),
+   which reads a shared mulberry32 stream while an online co-op runs
+   (`setSimSeed`, seeded in the handshake) and plain `Math.random`
+   offline. Cosmetics — 15-fx particles, 80-audio, draw-tree code, and
+   any block gated by a local `Math.random()` — must roll `crand()`
+   ONLY: a conditional pull on the sim stream silently desyncs the
+   lockstep (the sakura petals taught us). `simDraws` is the canary.
+   Duels additionally keep the old rule (no unseeded gameplay dice in
+   `updateFighter`) and lock to arena 0.
 
 ## How to run / test
 
@@ -405,6 +412,69 @@ render/HUD → world sweeps).
   kneel → real-update-loop revive → wave 2, both-down gameOver, rush
   entry, no save writes, admin refusal). Standard vm + API-bridge stub
   harness — rebuild it if lost.
+
+## 網 ONLINE CO-OP (2026-07-08, same day as couch co-op)
+
+Two houses, one storm: PvE co-op over a room code, built on the duel
+netcode + the couch co-op entities. Host plays P1 with their full
+progression; the guest drives P2 (duel-raw). Infinite + both rushes.
+
+- **Session kinds** (60-net): `net.kind` 'duel'|'coop' —
+  `hostGame/joinGame` generalize the old pair (`hostCoop/joinCoop`
+  wrappers; `netMsgEl` picks which menu box speaks). A kind-mismatched
+  join is refused politely (`kindErr`). Handshake: join (guest's
+  blade/bow) → probe/probeAck (RTT sizes the delay) → `coopStart`
+  carrying **seed + the host's entire save + mode/chaos/diff/curses**
+  → both sides run `startOnlineCoop` → identical `startRun`.
+- **Three legs of determinism**:
+  1. `setSimSeed(cfg.seed)` — every sim roll from one stream (hard
+     rule 6, the two dice).
+  2. `borrowSave(cfg.save)` (25-save) — the guest's sim runs on the
+     host's ledger so P1's statline matches. Mid-run save writes are
+     SIM STATE and land on the borrowed copy on both sims identically;
+     `persistSave` is a no-op while borrowed; `restoreSave()` at the
+     END of returnToMenu (after bankOrbs/persist, before resetPlayer)
+     hands the guest their own ledger back untouched.
+  3. Every action rides the tick-stamped bitmask — when
+     `net.coop && started`, 10-dom routes v/Shift/C/R/Q/E to
+     `net.pend`, touch taps likewise, `gatherInput` reads `pl.netCtl`
+     first, and mouse aim refuses (`mouseAimOn`).
+- **Bit map additions**: 4096 = interact (E) — P1/host only; 128 = 奥義
+  (activateUlt, P1 only); 1024 = bow stance via `toggleStanceFor`;
+  256 (brush swap) is meaningless in co-op. `applyBits` branches on
+  `net.coop` (samurai tongue) vs duels (fighter tongue). netFrame's
+  actors: host `player`/remote `p2`, guest mirrored. The step loop
+  breaks when `game.state` leaves 'playing' (a synced interact opened
+  a scroll) AND netFrame refuses to run at all outside 'playing' —
+  both sims freeze on the same tick, whoever calls.
+- **Shrines pause both sims**: the host's E opens the scroll at the
+  same tick on both (interact bit); only the host's cards answer
+  clicks; the pick crosses as `{t:'bless', id}` (queued in
+  `net.blessQ` if it beats the guest's sim to the shrine — unordered
+  wire), `blessClose` mirrors walking away; guests' Esc is ignored
+  there. **Pauses mirror** (`{t:'pause'}/{t:'resume'}` in
+  pauseGame/resumeGame — render-only, so tick skew is harmless).
+- **Not online**: the merchant portal never opens (DOM shop clicks
+  don't ride ticks — guard in startInfiniteWave), and the brush is
+  coerced to tetsu (its casts ride keyups). Fudemaru, chests and
+  campaign stay solo/couch territory.
+- **Desync insurance**: `coopChecksum()` (positions/hp/st/honor,
+  ×64-rounded through hash2) exchanged every 300 ticks
+  (`ckLocal/ckRemote`, `netCkCompare`) — a mismatch severs the line
+  honestly ("the sims drifted apart"). `simDraws` (00-util) counts
+  seeded rolls as a debugging canary. HUD: connection dot + host/guest
+  + ms under the 弐 stack; "waiting for the wire…" while stalled.
+- **Drops**: `netDropped` returns co-op to the menu like duels;
+  `netCleanup` clears the seed; retryRun already routes to menu.
+- Verified by `netcoop_harness.js` in the scratchpad: TWO vm contexts
+  joined by a stubbed PeerJS wire (JSON-cloned messages), the real
+  handshake, then 1000+ ticks driven through netFrame with per-tick
+  aligned state dumps compared across wave transitions, a synced
+  shrine pick, quit/restore, plus an online-duel regression (22
+  checks). HARNESS GOTCHA: out-of-band mutations (killWave, teleports)
+  must land at EQUAL ticks on both sims (`syncTicks()`) — the lockstep
+  skews by a tick during catch-up bursts, and mutating skewed sims
+  fabricates "desyncs".
 
 ## 弓道 Archery Rite (2026-07-07, same session)
 

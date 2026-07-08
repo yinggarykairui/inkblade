@@ -517,21 +517,35 @@ function renderMenu() {
   document.getElementById('infEndless').classList.toggle('sel', menuSel.mode === 'infinite');
   document.getElementById('infGauntlet').classList.toggle('sel', menuSel.mode === 'rush' && !menuSel.chaos);
   document.getElementById('infChaos').classList.toggle('sel', menuSel.mode === 'rush' && menuSel.chaos);
-  // 二人 couch co-op — a second blade may join the storm and the rushes.
-  // P2 is duel-raw (any arm, no progression); the brush stays sealed out.
+  // 二人 co-op — a second blade may join the storm and the rushes, on
+  // the same couch or across the wire. P2 is duel-raw (any arm, no
+  // progression); the brush stays sealed out.
   document.getElementById('coopBox').style.display = groupInf ? 'block' : 'none';
   if (groupInf) {
     const cRow = document.getElementById('coopRow');
     cRow.innerHTML = '';
-    for (const [on, label] of [[false, '一人 ALONE'], [true, '二人 CO-OP']]) {
+    const company = menuSel.coopOnline ? 'online' : menuSel.coop ? 'couch' : 'alone';
+    const opts = [['alone', '一人 ALONE'], ['couch', '二人 COUCH CO-OP'],
+                  ['online', '網 ONLINE CO-OP']];
+    for (const [id, label] of opts) {
       const b = document.createElement('button');
-      b.className = 'curseBtn' + (!!menuSel.coop === on ? ' sel' : '');
+      b.className = 'curseBtn' + (company === id ? ' sel' : '');
       b.textContent = label;
-      b.onclick = () => { menuSel.coop = on; renderMenu(); };
+      b.onclick = () => {
+        menuSel.coop = id === 'couch';
+        menuSel.coopOnline = id === 'online';
+        renderMenu();
+      };
       cRow.appendChild(b);
     }
-    document.getElementById('coopSetup').style.display = menuSel.coop ? 'block' : 'none';
-    if (menuSel.coop) {
+    document.getElementById('coopOnlineBox').style.display =
+      menuSel.coopOnline ? 'block' : 'none';
+    const showPicks = menuSel.coop || menuSel.coopOnline;
+    document.getElementById('coopSetup').style.display = showPicks ? 'block' : 'none';
+    document.getElementById('coopBladeLabel').textContent = menuSel.coopOnline
+      ? '— your blade when JOINING a room · the host plays their own samurai —'
+      : '— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate —';
+    if (showPicks) {
       if (!WEAPONS[menuSel.p2Blade] || WEAPONS[menuSel.p2Blade].admin) menuSel.p2Blade = 'tetsu';
       if (!BOWS[menuSel.p2Bow]) menuSel.p2Bow = 'shortbow';
       const bRow = document.getElementById('coopBladeRow');
@@ -794,6 +808,12 @@ document.getElementById('infEndless').onclick = () => { menuSel.mode = 'infinite
 document.getElementById('infGauntlet').onclick = () => { menuSel.mode = 'rush'; menuSel.chaos = false; renderMenu(); };
 document.getElementById('infChaos').onclick = () => { menuSel.mode = 'rush'; menuSel.chaos = true; renderMenu(); };
 document.getElementById('btnTooEasy').onclick = () => { advOpen = !advOpen; renderMenu(); };
+document.getElementById('btnCoopHost').onclick = hostCoop;
+document.getElementById('btnCoopJoin').onclick = () =>
+  joinCoop(document.getElementById('coopJoinCode').value);
+document.getElementById('coopJoinCode').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') joinCoop(ev.target.value);
+});
 document.getElementById('btnHost').onclick = hostDuel;
 document.getElementById('btnJoin').onclick = () =>
   joinDuel(document.getElementById('joinCode').value);

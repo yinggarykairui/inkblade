@@ -119,6 +119,7 @@ function resetPlayer() {
     hollowT: 0, hollowSpent: false,   // 虚 — the price of an empty chest
     attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
     downed: false,
+    netCtl: null,   // online co-op re-arms this after startRun
   });
   player.hp = player.maxHp; player.st = player.maxSt;
   player.x = ARENA.x + ARENA.w / 2; player.y = ARENA.y + ARENA.h / 2;
@@ -143,6 +144,7 @@ function makeP2(bladeId, bowId) {
     hollowT: 0, hollowSpent: false,
     attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
     downed: false, meditating: false,
+    netCtl: null,   // online co-op re-arms this after startRun
   };
   p2.hp = p2.maxHp;
   return p2;
@@ -338,6 +340,12 @@ function playerDrawing() {
    mouse; P2 owns the arrows and the duel-style U/I/O/P/, row */
 function gatherInput(pl) {
   let mx, my, held, med;
+  if (pl.netCtl) {
+    // 網 online co-op: both blades are fed exclusively by the tick-stamped
+    // bitmask — local keys never touch an entity directly
+    return { mx: pl.netCtl.mx || 0, my: pl.netCtl.my || 0,
+             held: !!pl.netCtl.atkHeld, med: !!pl.netCtl.med };
+  }
   if (pl.p2) {
     mx = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
     my = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
@@ -472,7 +480,7 @@ function updateSamurai(pl, dt) {
       pl.st + regenRate * (hasBless('tempo') ? 1.25 : 1) *
       (pl.regenDelay <= 0 ? 2 : 3) * dt);
     if (Math.random() < dt * 7)
-      particles.push({ kind: 'dot', x: pl.x + rand(-8, 8), y: pl.y - pl.r,
+      particles.push({ kind: 'dot', x: pl.x + crand(-8, 8), y: pl.y - pl.r,
         vx: 0, vy: -34, t: 0, life: .8, color: 'rgba(168,132,58,.55)', rad: 1.8 });
   }
 
@@ -625,7 +633,7 @@ function updateSamurai(pl, dt) {
     particles.push({ kind: 'line',
       x: pl.x + Math.cos(ba) * (pl.r + 26),
       y: pl.y + Math.sin(ba) * (pl.r + 26),
-      vx: rand(-60, 60), vy: rand(-60, 60),
+      vx: crand(-60, 60), vy: crand(-60, 60),
       t: 0, life: .15, tint: 'faint', owner: pl, w: 1.2 });
   }
   // Fudemaru: bristles drip ink that never quite lands; spirit never tires

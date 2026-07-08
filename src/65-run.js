@@ -45,11 +45,19 @@ const overlays = {
   rebirth: document.getElementById('rebirthOverlay'),
 };
 function pauseGame() {
+  // online co-op: a pause is render-only, so mirroring it across the wire
+  // is safe — neither sim steps while either scroll hangs
+  if (netCoop() && net.started && game.state === 'playing') {
+    try { net.conn.send({ t: 'pause' }); } catch (e) {}
+  }
   game.state = 'paused';          // render-only: the whole fight freezes
   player.vHeld = false;           // don't let a held brush-cast fire on resume
   showOverlay('pause');
 }
 function resumeGame() {
+  if (netCoop() && net.started && game.state === 'paused') {
+    try { net.conn.send({ t: 'resume' }); } catch (e) {}
+  }
   game.state = 'playing';
   showOverlay('none');
 }
@@ -140,7 +148,7 @@ function spawnComp(comp, meleeCap) {
   for (const type of comp) {
     const spot = wallSpot();
     const e = new ENEMY_TYPES[type](spot.x, spot.y);
-    if (eliteOk && Math.random() < .1) makeElite(e);
+    if (eliteOk && srandom() < .1) makeElite(e);
     tuneEnemy(e, m);
     enemies.push(e);
   }
@@ -201,8 +209,8 @@ function genInfiniteComp(w) {
   ][arenaIdx];
   const count = Math.min(3 + Math.floor(w / 4), 9);
   const comp = [];
-  if (arenaIdx >= 3 && w >= 8 && Math.random() < .5) comp.push('brute');
-  while (comp.length < count) comp.push(pools[Math.floor(Math.random() * pools.length)]);
+  if (arenaIdx >= 3 && w >= 8 && srandom() < .5) comp.push('brute');
+  while (comp.length < count) comp.push(pools[Math.floor(srandom() * pools.length)]);
   return comp;
 }
 
@@ -219,7 +227,8 @@ const CURSES = [
 ];
 
 /* ---------- run flow ---------- */
-const menuSel = { mode: 'level', diff: 1, level: 1, chaos: false, map: 0, coop: false,
+const menuSel = { mode: 'level', diff: 1, level: 1, chaos: false, map: 0,
+                  coop: false, coopOnline: false,
                   p1Blade: 'tetsu', p2Blade: 'tetsu', curses: [],
                   p1Bow: 'shortbow', p2Bow: 'shortbow',
                   duelOpp: 'human', duelArena: 0,
@@ -229,6 +238,14 @@ function beginRun() {
   if (menuSel.mode === 'duel' && menuSel.duelOpp === 'online') {
     if (!net || !net.started)
       netStatus('host a room or join one — the duel starts when the line connects', true);
+    return;
+  }
+  if (menuSel.coopOnline && (menuSel.mode === 'infinite' || menuSel.mode === 'rush')) {
+    // the online storm starts itself on handshake, never from this button
+    if (!net || !net.started) {
+      netMsgEl = 'coopNetMsg';
+      netStatus('host a room or join one — the storm begins when the line connects', true);
+    }
     return;
   }
   startRun(menuSel.mode);
@@ -267,10 +284,11 @@ function startRun(mode) {
   shrine = null; game.kyudo = null; kyudoStand = null;
   shakeMag = 0; hitStop = 0;
   enemies = [];
-  // 二人 couch co-op — the second blade stands only in the endless storm
-  // and the boss rushes; every other door remains a solo trial. P2 is
+  // 二人 co-op — the second blade stands only in the endless storm and
+  // the boss rushes; every other door remains a solo trial. P2 is
   // duel-style raw: menu picks, no progression, and never a save write.
-  game.coop = !!menuSel.coop && (mode === 'infinite' || mode === 'rush');
+  // Couch arms via the menu; online arms via the live net session.
+  game.coop = (!!menuSel.coop || netCoop()) && (mode === 'infinite' || mode === 'rush');
   p2 = game.coop ? makeP2(menuSel.p2Blade, menuSel.p2Bow) : null;
   if (mode === 'level') {
     game.level = menuSel.level;
@@ -372,8 +390,9 @@ function startInfiniteWave(first) {
       setBanner(`${THEMES[arenaIdx].kanji} ${THEMES[arenaIdx].name} — wave ${w}`, 2);
     else setBanner(`— wave ${w} —`, 1.6);
   }
-  // the stall portal opens at the start of every arena rotation
-  if (save.merchantUnlocked && (w - 1) % 5 === 0)
+  // the stall portal opens at the start of every arena rotation —
+  // but not online: the shop's DOM clicks don't ride the tick pipeline
+  if (save.merchantUnlocked && (w - 1) % 5 === 0 && !netCoop())
     spawnPortal(ARENA.x + 56, ARENA.y + 56, 'merchant');
   // every fifth wave survived, a shrine stands in the far corner
   if (w > 1 && (w - 1) % 5 === 0)
@@ -726,7 +745,7 @@ function onWaveCleared() {
       if (game.map + 1 >= MAP_COUNT) award('trialAll');
     } else {
       // stage chest roll: 12% + 1% per stage into the map
-      if (Math.random() < .12 + game.cStage * .01) rollChest(p, 0);
+      if (srandom() < .12 + game.cStage * .01) rollChest(p, 0);
       spawnPortal(p.x, p.y, 'next');
       const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
       if (game.cStage % 4 === 0)
@@ -859,6 +878,8 @@ function returnToMenu() {
   shrine = null; game.kyudo = null; kyudoStand = null;
   enemies = []; projectiles = []; shockwaves = []; blackholes = [];
   p2 = null; game.coop = false;   // the second blade bows out at the door
+  restoreSave();   // an online-co-op guest gets their own ledger back
+  game.honor = save.honor;
   setTheme(0);
   resetPlayer();
   renderMenu();

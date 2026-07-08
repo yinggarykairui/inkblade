@@ -25,7 +25,7 @@ class Enemy {
     this.holdDist = 130;
     this.didHit = false; this.dodgeAwarded = false;
     this.hitBy = 0;
-    this.orbitDir = Math.random() < .5 ? 1 : -1;
+    this.orbitDir = srandom() < .5 ? 1 : -1;
     this.orbitFlipT = rand(1.2, 2.8);
     this.honorKill = 40;
     this.weapon = 'club';
@@ -309,7 +309,7 @@ class Enemy {
   }
   st_recover(dt) {
     if (this.stateT >= this.recoverDur)
-      this.setState(Math.random() < .3 ? 'retreat' : 'approach');
+      this.setState(srandom() < .3 ? 'retreat' : 'approach');
   }
   st_retreat(dt) {
     const ang = this.angTo();
@@ -378,7 +378,7 @@ class Duelist extends Enemy {
         this.punishNext = false;
         this.setState('windup', { dur: .28, noDelay: true });   // fast punish stab
       } else {
-        const feint = Math.random() < adapt.feintChance(.22);
+        const feint = srandom() < adapt.feintChance(.22);
         this.setState('windup', { feint });
       }
     } else if (this.stateT > 2.2) { this.dropToken(); this.setState('circle'); }
@@ -472,7 +472,7 @@ class Archer extends Enemy {
     const lead = aimLead(T.x, T.y, T.vx, T.vy,
                          this.x, this.y, this.arrowSpeed);
     this.face = Math.atan2(lead.y - this.y, lead.x - this.x);
-    if (this.d() < 110 && Math.random() < .5) {   // pressured: bail out
+    if (this.d() < 110 && srandom() < .5) {   // pressured: bail out
       this.dropToken();
       this.fireCd = .8;
       const ang = this.angTo();
@@ -722,14 +722,14 @@ class GateSentinel extends Grunt {
     this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.35, dt);
     if (this.d() < this.attackRange + 10) {
       const T = this.dmgTuned || 1;
-      if (Math.random() < .42) {          // gate-slam: wide, heavy, slow
+      if (srandom() < .42) {          // gate-slam: wide, heavy, slow
         this.attackRange = 168; this.attackArc = 2.7;
         this.dmg = Math.round(26 * T); this.heavy = true;
         this.setState('windup', { dur: 1.2 / Math.sqrt(eAggro()) });
       } else {                            // straight cut — feintable when reforged
         this.attackRange = 132; this.attackArc = 1.9;
         this.dmg = Math.round(18 * T); this.heavy = false;
-        const feint = this.reforged && Math.random() < adapt.feintChance(.3);
+        const feint = this.reforged && srandom() < adapt.feintChance(.3);
         this.setState('windup', { feint });
       }
     } else if (this.stateT > 3) { this.dropToken(); this.setState('circle'); }
@@ -823,7 +823,7 @@ class IronBrute extends Brute {
     this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.5, dt);
     if (this.d() < this.attackRange - 6) {
       const T = this.dmgTuned || 1;
-      this.slamNext = Math.random() < .45;
+      this.slamNext = srandom() < .45;
       if (this.slamNext) {   // earthbreaker: full-circle slam + expanding shock ring
         this.attackRange = 120; this.attackArc = TAU;
         this.dmg = Math.round(24 * T);
@@ -930,7 +930,7 @@ class StormSovereign extends Enemy {
     this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.5, dt);
     if (this.d() < this.attackRange - 4) {
       if (this.punishNext) { this.punishNext = false; this.setState('windup', { dur: .3, noDelay: true }); }
-      else this.setState('windup', { feint: Math.random() < adapt.feintChance(.3) });
+      else this.setState('windup', { feint: srandom() < adapt.feintChance(.3) });
     } else if (this.stateT > 2.3) { this.dropToken(); this.setState('circle'); }
   }
   st_feintwait(dt) {
@@ -950,7 +950,7 @@ function makeElite(e) {
   e.elite = true;
   const pool = e instanceof Archer ? ['split', 'swift', 'stoneguard']
                                    : ['swift', 'aura', 'stoneguard'];
-  e.affix = pool[Math.floor(Math.random() * pool.length)];
+  e.affix = pool[Math.floor(srandom() * pool.length)];
   e.hp = e.maxHp = Math.round(e.maxHp * 1.4);
   e.dmg = Math.round(e.dmg * 1.15);
   e.honorOrb = Math.round(rand(15, 30));

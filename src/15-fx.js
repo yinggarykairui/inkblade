@@ -14,16 +14,16 @@ function addText(x, y, txt, color, size = 15) {
 }
 function sparks(x, y, ang, color, n = 6, spread = 1.2) {
   for (let i = 0; i < n; i++) {
-    const a = ang + rand(-spread, spread), s = rand(90, 300);
+    const a = ang + crand(-spread, spread), s = crand(90, 300);
     particles.push({ kind: 'line', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-      t: 0, life: rand(.18, .34), color, w: rand(1, 2.5) });
+      t: 0, life: crand(.18, .34), color, w: crand(1, 2.5) });
   }
 }
 function puff(x, y, color, n = 5) {
   for (let i = 0; i < n; i++) {
-    const a = rand(0, TAU), s = rand(20, 70);
+    const a = crand(0, TAU), s = crand(20, 70);
     particles.push({ kind: 'dot', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-      t: 0, life: rand(.25, .5), color, rad: rand(2, 4.5) });
+      t: 0, life: crand(.25, .5), color, rad: crand(2, 4.5) });
   }
 }
 function slashTrail(x, y, r, a0, a1, color, w = 5) {
@@ -32,11 +32,11 @@ function slashTrail(x, y, r, a0, a1, color, w = 5) {
 function spawnPetals(x, y, n, tint, owner) {
   // default pigment petals; a tint token turns them to ink in base play
   for (let i = 0; i < n; i++) {
-    const a = rand(0, TAU);
-    particles.push({ kind: 'petal', x: x + rand(-6, 6), y: y + rand(-6, 6),
-      vx: Math.cos(a) * rand(5, 25), vy: rand(10, 32),
-      t: 0, life: rand(.8, 1.4), color: '#d98ea1', tint, owner,
-      rad: rand(1.5, 2.8), spin: rand(0, TAU) });
+    const a = crand(0, TAU);
+    particles.push({ kind: 'petal', x: x + crand(-6, 6), y: y + crand(-6, 6),
+      vx: Math.cos(a) * crand(5, 25), vy: crand(10, 32),
+      t: 0, life: crand(.8, 1.4), color: '#d98ea1', tint, owner,
+      rad: crand(1.5, 2.8), spin: crand(0, TAU) });
   }
 }
 function boltFX(x0, y0, x1, y1, c1, c2) {
@@ -44,7 +44,7 @@ function boltFX(x0, y0, x1, y1, c1, c2) {
     const pts = [{ x: x0, y: y0 }];
     for (let i = 1; i < 6; i++) {
       const t = i / 6;
-      pts.push({ x: lerp(x0, x1, t) + rand(-10, 10), y: lerp(y0, y1, t) + rand(-10, 10) });
+      pts.push({ x: lerp(x0, x1, t) + crand(-10, 10), y: lerp(y0, y1, t) + crand(-10, 10) });
     }
     pts.push({ x: x1, y: y1 });
     return pts;
@@ -83,15 +83,15 @@ function paintDeathKanji(b) {
   calligraphy.push({
     x: clamp(b.x, ARENA.x + 90, ARENA.x + ARENA.w - 90),
     y: clamp(b.y, ARENA.y + 80, ARENA.y + ARENA.h - 80),
-    ch, rot: rand(-.15, .15), alpha: .16,
+    ch, rot: crand(-.15, .15), alpha: .16,
   });
 }
 function inkSplat(x, y) {
   if (stains.length > 40) stains.shift();
   const blobs = [];
-  for (let i = 0; i < rand(4, 8); i++) {
-    const a = rand(0, TAU), d = rand(0, 22);
-    blobs.push({ dx: Math.cos(a) * d, dy: Math.sin(a) * d, r: rand(2.5, 9) });
+  for (let i = 0; i < crand(4, 8); i++) {
+    const a = crand(0, TAU), d = crand(0, 22);
+    blobs.push({ dx: Math.cos(a) * d, dy: Math.sin(a) * d, r: crand(2.5, 9) });
   }
   stains.push({ x, y, blobs, alpha: .28 });
   puff(x, y, INK, 9);
@@ -148,7 +148,7 @@ function brushStroke(pts, opts) {
     ctx.globalAlpha = .35;
     for (let i = 0; i < 2; i++) {
       ctx.beginPath();
-      ctx.arc(tip.x + rand(-3, 3), tip.y + rand(-3, 3), rand(.4, 1.1), 0, TAU);
+      ctx.arc(tip.x + crand(-3, 3), tip.y + crand(-3, 3), crand(.4, 1.1), 0, TAU);
       ctx.fill();
     }
   }
@@ -170,9 +170,9 @@ FX_RECIPES.arrowLoose = d => {
   } else {
     for (let i = 0; i < 3; i++)   // a flick of ink off the string
       particles.push({ kind: 'line', x: d.x, y: d.y,
-        vx: Math.cos(d.ang + rand(-.5, .5)) * rand(60, 140),
-        vy: Math.sin(d.ang + rand(-.5, .5)) * rand(60, 140),
-        t: 0, life: rand(.12, .2), tint: 'wash', owner: d.owner, w: 1.2 });
+        vx: Math.cos(d.ang + crand(-.5, .5)) * crand(60, 140),
+        vy: Math.sin(d.ang + crand(-.5, .5)) * crand(60, 140),
+        t: 0, life: crand(.12, .2), tint: 'wash', owner: d.owner, w: 1.2 });
   }
 };
 FX_RECIPES.arrowImpact = d => {
@@ -180,47 +180,47 @@ FX_RECIPES.arrowImpact = d => {
   if (!s.glow) {
     // sumi-e: the shaft lands as a directional splatter of ink droplets
     for (let i = 0; i < 6; i++) {
-      const a = d.ang + Math.PI + rand(-1.1, 1.1);
+      const a = d.ang + Math.PI + crand(-1.1, 1.1);
       particles.push({ kind: 'dot', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(30, 160), vy: Math.sin(a) * rand(30, 160),
-        t: 0, life: rand(.2, .45), tint: 'stroke', owner: d.owner, rad: rand(1, 2.6) });
+        vx: Math.cos(a) * crand(30, 160), vy: Math.sin(a) * crand(30, 160),
+        t: 0, life: crand(.2, .45), tint: 'stroke', owner: d.owner, rad: crand(1, 2.6) });
     }
     return;
   }
   const P = PAL.pigment;
   if (d.bowId === 'longbow') {          // Piercing Stroke — the line shatters
     for (let i = 0; i < 8; i++) {
-      const a = rand(0, TAU);
+      const a = crand(0, TAU);
       particles.push({ kind: 'line', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(160, 380), vy: Math.sin(a) * rand(160, 380),
-        t: 0, life: rand(.2, .38),
-        color: i % 2 ? P.imperialGold : '#ffffff', w: rand(1.4, 2.4) });
+        vx: Math.cos(a) * crand(160, 380), vy: Math.sin(a) * crand(160, 380),
+        t: 0, life: crand(.2, .38),
+        color: i % 2 ? P.imperialGold : '#ffffff', w: crand(1.4, 2.4) });
     }
     particles.push({ kind: 'ring', x: d.x, y: d.y, t: 0, life: .3,
       color: P.imperialGold, r0: 4, r1: 46, w: 2.5 });
   } else if (d.bowId === 'repeater') {  // Splatter Volley — pigment bursts
     const cols = [P.cinnabar, P.azurite, P.jade];
     for (let i = 0; i < 10; i++) {
-      const a = rand(0, TAU);
+      const a = crand(0, TAU);
       particles.push({ kind: 'dot', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(40, 260), vy: Math.sin(a) * rand(40, 260) - 40,
-        t: 0, life: rand(.3, .6), color: cols[i % 3], rad: rand(2, 5) });
+        vx: Math.cos(a) * crand(40, 260), vy: Math.sin(a) * crand(40, 260) - 40,
+        t: 0, life: crand(.3, .6), color: cols[i % 3], rad: crand(2, 5) });
     }
   } else if (d.bowId === 'firebow') {   // Binding Scroll — grass-script coils
     const script = ['縛', '封', '結'];
     for (let i = 0; i < 3; i++)
       particles.push({ kind: 'glyph', ch: script[i], color: P.jade,
-        x: d.x + rand(-18, 18), y: d.y + rand(-18, 18),
+        x: d.x + crand(-18, 18), y: d.y + crand(-18, 18),
         vx: 0, vy: -20, t: 0, life: .8 + i * .15, size: 20 + i * 5, misted: false });
     particles.push({ kind: 'ring', x: d.x, y: d.y, t: 0, life: .5,
       color: P.jade, r0: 8, r1: 44, w: 2 });
   } else if (d.bowId === 'stormbow') {  // Painted Beast — the wings burst
     for (let i = 0; i < 8; i++) {
-      const a = d.ang + Math.PI + rand(-1.3, 1.3);
+      const a = d.ang + Math.PI + crand(-1.3, 1.3);
       particles.push({ kind: 'petal', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(60, 220), vy: Math.sin(a) * rand(60, 220),
-        t: 0, life: rand(.35, .7),
-        color: i % 2 ? P.cinnabar : P.imperialGold, rad: rand(2, 3.4), spin: rand(0, TAU) });
+        vx: Math.cos(a) * crand(60, 220), vy: Math.sin(a) * crand(60, 220),
+        t: 0, life: crand(.35, .7),
+        color: i % 2 ? P.cinnabar : P.imperialGold, rad: crand(2, 3.4), spin: crand(0, TAU) });
     }
     particles.push({ kind: 'glyph', ch: '鳳', color: P.cinnabar,
       x: d.x, y: d.y - 8, vx: 0, vy: -26, t: 0, life: .7, size: 26, misted: false });
@@ -277,25 +277,25 @@ FX_RECIPES.slash = d => {
       t: 0, life: .4, tint: 'faint', owner: d.owner, w: deep ? 4.5 : 3 });
     if (deep && d.tipX !== undefined)
       particles.push({ kind: 'dot', x: d.tipX, y: d.tipY,
-        vx: rand(-30, 30), vy: rand(10, 50), t: 0, life: rand(.3, .5),
-        tint: 'stroke', owner: d.owner, rad: rand(1, 2) });
+        vx: crand(-30, 30), vy: crand(10, 50), t: 0, life: crand(.3, .5),
+        tint: 'stroke', owner: d.owner, rad: crand(1, 2) });
     if (deep && d.bladeId === 'botan' && d.tipX !== undefined)
       spawnPetals(d.tipX, d.tipY, 1, 'wash', d.owner);   // the bloom doubles
   }
   if (d.tipX !== undefined && Math.random() < .3)      // droplets off the tip
     particles.push({ kind: 'dot', x: d.tipX, y: d.tipY,
-      vx: rand(-40, 40), vy: rand(-20, 60), t: 0, life: rand(.2, .4),
-      tint: 'wash', owner: d.owner, rad: rand(.8, 1.8) });
+      vx: crand(-40, 40), vy: crand(-20, 60), t: 0, life: crand(.2, .4),
+      tint: 'wash', owner: d.owner, rad: crand(.8, 1.8) });
 };
 // fire status — the pigment rule: a cinnabar wash under charcoal smoke
 FX_RECIPES.burn = d => {
   particles.push({ kind: 'dot', x: d.x, y: d.y - 6,
-    vx: rand(-8, 8), vy: rand(-50, -25),
-    t: 0, life: rand(.4, .7), color: 'rgba(227,66,52,.5)', rad: rand(2, 3.5) });
+    vx: crand(-8, 8), vy: crand(-50, -25),
+    t: 0, life: crand(.4, .7), color: 'rgba(227,66,52,.5)', rad: crand(2, 3.5) });
   for (let i = 0; i < 2; i++)
-    particles.push({ kind: 'dot', x: d.x + rand(-6, 6), y: d.y - 8,
-      vx: rand(-10, 10), vy: rand(-60, -30),
-      t: 0, life: rand(.5, .9), tint: 'faint', owner: null, rad: rand(2, 4) });
+    particles.push({ kind: 'dot', x: d.x + crand(-6, 6), y: d.y - 8,
+      vx: crand(-10, 10), vy: crand(-60, -30),
+      t: 0, life: crand(.5, .9), tint: 'faint', owner: null, rad: crand(2, 4) });
 };
 
 function updateEffects(dt) {

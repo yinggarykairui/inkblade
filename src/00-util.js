@@ -28,7 +28,22 @@ function hash2(a, b) { return ((a * 2654435761) ^ (b * 40503)) >>> 0; }
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp  = (a, b, t) => a + (b - a) * t;
-const rand  = (a, b) => a + Math.random() * (b - a);
+/* ---------- the two dice ----------
+   ONLINE CO-OP runs two full PvE sims in lockstep, so every roll the
+   SIM makes must come from a shared seeded stream. `rand`/`srandom`
+   are that stream (plain Math.random offline — nothing changes solo).
+   `crand` is the cosmetic die for particles/audio/draw code: those run
+   at each client's own frame rate and may NEVER consume the sim
+   stream, or the two sims drift apart.                              */
+let simRng = null;
+let simDraws = 0;   // diagnostic: seeded rolls made — a lockstep desync canary
+function setSimSeed(seed) {
+  simRng = seed == null ? null : mulberry32(seed >>> 0);
+  simDraws = 0;
+}
+const srandom = () => { if (simRng) { simDraws++; return simRng(); } return Math.random(); };
+const rand  = (a, b) => a + srandom() * (b - a);
+const crand = (a, b) => a + Math.random() * (b - a);
 const dist  = (ax, ay, bx, by) => Math.hypot(bx - ax, by - ay);
 function angDiff(a, b) {           // signed shortest angle a->b
   let d = (b - a) % TAU;

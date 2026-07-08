@@ -256,8 +256,21 @@
         <div id="coopBox" style="display:none;">
           <div class="menuLabel">— company —</div>
           <div class="lvlRow" id="coopRow"></div>
+          <div id="coopOnlineBox" style="display:none;">
+            <div class="menuLabel">— online · trade a room code; the host's storm begins when the line connects —</div>
+            <div>
+              <button id="btnCoopHost" class="ghost" style="font-size:14px;padding:8px 16px;">HOST — GET CODE</button>
+              <input id="coopJoinCode" type="text" maxlength="8" placeholder="code…"
+                     autocomplete="off" spellcheck="false"
+                     style="font-family:inherit;font-size:14px;text-align:center;width:90px;
+                            background:transparent;border:none;outline:none;color:var(--ink);
+                            border-bottom:1.5px solid rgba(43,35,32,.35);padding:4px;">
+              <button id="btnCoopJoin" class="ghost" style="font-size:14px;padding:8px 16px;">JOIN</button>
+            </div>
+            <div id="coopNetMsg" style="font-size:12px;color:var(--red);min-height:16px;margin-top:6px;"></div>
+          </div>
           <div id="coopSetup" style="display:none;">
-            <div class="menuLabel">— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate —</div>
+            <div class="menuLabel" id="coopBladeLabel">— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate —</div>
             <div class="lvlRow" id="coopBladeRow"></div>
             <div class="menuLabel">— player 2 bow · duel-raw, no progression —</div>
             <div class="lvlRow" id="coopBowRow"></div>

@@ -4,7 +4,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   const rawDt = Math.min((now - last) / 1000, 1 / 30);   // clamp tab-switch spikes
   last = now;
-  if (net && net.started && game.mode === 'duel' && game.state === 'playing') {
+  if (net && net.started && (game.mode === 'duel' || net.coop) &&
+      game.state === 'playing') {
     // online lockstep: fixed 60Hz ticks, gated on both sides' inputs
     if (hitStop > 0) hitStop -= rawDt;
     else netFrame(rawDt);

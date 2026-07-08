@@ -256,8 +256,21 @@
         <div id="coopBox" style="display:none;">
           <div class="menuLabel">— company —</div>
           <div class="lvlRow" id="coopRow"></div>
+          <div id="coopOnlineBox" style="display:none;">
+            <div class="menuLabel">— online · trade a room code; the host's storm begins when the line connects —</div>
+            <div>
+              <button id="btnCoopHost" class="ghost" style="font-size:14px;padding:8px 16px;">HOST — GET CODE</button>
+              <input id="coopJoinCode" type="text" maxlength="8" placeholder="code…"
+                     autocomplete="off" spellcheck="false"
+                     style="font-family:inherit;font-size:14px;text-align:center;width:90px;
+                            background:transparent;border:none;outline:none;color:var(--ink);
+                            border-bottom:1.5px solid rgba(43,35,32,.35);padding:4px;">
+              <button id="btnCoopJoin" class="ghost" style="font-size:14px;padding:8px 16px;">JOIN</button>
+            </div>
+            <div id="coopNetMsg" style="font-size:12px;color:var(--red);min-height:16px;margin-top:6px;"></div>
+          </div>
           <div id="coopSetup" style="display:none;">
-            <div class="menuLabel">— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate —</div>
+            <div class="menuLabel" id="coopBladeLabel">— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate —</div>
             <div class="lvlRow" id="coopBladeRow"></div>
             <div class="menuLabel">— player 2 bow · duel-raw, no progression —</div>
             <div class="lvlRow" id="coopBowRow"></div>
@@ -464,7 +477,22 @@ function hash2(a, b) { return ((a * 2654435761) ^ (b * 40503)) >>> 0; }
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp  = (a, b, t) => a + (b - a) * t;
-const rand  = (a, b) => a + Math.random() * (b - a);
+/* ---------- the two dice ----------
+   ONLINE CO-OP runs two full PvE sims in lockstep, so every roll the
+   SIM makes must come from a shared seeded stream. `rand`/`srandom`
+   are that stream (plain Math.random offline — nothing changes solo).
+   `crand` is the cosmetic die for particles/audio/draw code: those run
+   at each client's own frame rate and may NEVER consume the sim
+   stream, or the two sims drift apart.                              */
+let simRng = null;
+let simDraws = 0;   // diagnostic: seeded rolls made — a lockstep desync canary
+function setSimSeed(seed) {
+  simRng = seed == null ? null : mulberry32(seed >>> 0);
+  simDraws = 0;
+}
+const srandom = () => { if (simRng) { simDraws++; return simRng(); } return Math.random(); };
+const rand  = (a, b) => a + srandom() * (b - a);
+const crand = (a, b) => a + Math.random() * (b - a);
 const dist  = (ax, ay, bx, by) => Math.hypot(bx - ax, by - ay);
 function angDiff(a, b) {           // signed shortest angle a->b
   let d = (b - a) % TAU;
@@ -882,17 +910,29 @@ addEventListener('keydown', e => {
   if (k.startsWith('Arrow') || k === ' ') e.preventDefault();
   keys[k] = true;
   if (k.length === 1) keys[k.toLowerCase()] = true;
-  if ((k === 'v' || k === 'V') && !e.repeat) {
+  // 網 online co-op: every action rides the tick pipeline, never the
+  // entity — a locally-applied press would land early on one sim only
+  const coopWire = net && net.started && net.coop && game.state === 'playing';
+  if (coopWire && !e.repeat) {
+    const wk = k.length === 1 ? k.toLowerCase() : k;
+    if (wk === 'v') net.pend.atk = true;
+    if (k === 'Shift') net.pend.roll = true;
+    if (wk === 'c') net.pend.parry = true;
+    if (wk === 'r' || k === ' ') net.pend.ult = true;
+    if (wk === 'q') net.pend.stance = true;
+    if (wk === 'e') net.pend.interact = true;
+  }
+  if ((k === 'v' || k === 'V') && !e.repeat && !coopWire) {
     // Fudemaru casts on release so the hold duration can pick the symbol
     if (game.equipped === 'fudemaru' && game.state === 'playing' && game.mode !== 'duel') {
       player.vHeld = true; player.vDownAt = game.time;
     } else player.attackBuf = 0.18;
   }
-  if (k === 'Shift') player.dodgeBuf = 0.18;
-  if ((k === 'c' || k === 'C') && !e.repeat) player.parryBuf = 0.18;
+  if (k === 'Shift' && !coopWire) player.dodgeBuf = 0.18;
+  if ((k === 'c' || k === 'C') && !e.repeat && !coopWire) player.parryBuf = 0.18;
   // couch co-op: the second blade answers the duel-style row —
   // U slash · I roll · O parry · P bow-stance · , meditate (held)
-  if (game.coop && p2 && game.state === 'playing' && game.mode !== 'duel' && !e.repeat) {
+  if (game.coop && !net && p2 && game.state === 'playing' && game.mode !== 'duel' && !e.repeat) {
     const ck = k.length === 1 ? k.toLowerCase() : k;
     if (ck === 'u') p2.attackBuf = 0.18;
     if (ck === 'i') p2.dodgeBuf = 0.18;
@@ -934,11 +974,12 @@ addEventListener('keydown', e => {
       if (lk === 'p') toggleFighterStance(p2t);
     }
   }
-  if ((k === 'e' || k === 'E') && !e.repeat) tryInteract();
-  if ((k === 'r' || k === 'R' || k === ' ') && !e.repeat) activateUlt();
-  if ((k === 'q' || k === 'Q') && !e.repeat) toggleStance();
-  if ((k === 'l' || k === 'L') && !e.repeat) toggleUlt();
-  if ((k === 'u' || k === 'U') && !e.repeat && !(game.coop && game.mode !== 'duel'))
+  if ((k === 'e' || k === 'E') && !e.repeat && !coopWire) tryInteract();
+  if ((k === 'r' || k === 'R' || k === ' ') && !e.repeat && !coopWire) activateUlt();
+  if ((k === 'q' || k === 'Q') && !e.repeat && !coopWire) toggleStance();
+  if ((k === 'l' || k === 'L') && !e.repeat && !coopWire) toggleUlt();
+  if ((k === 'u' || k === 'U') && !e.repeat && !coopWire &&
+      !(game.coop && game.mode !== 'duel'))
     toggleBrushSwap();   // in co-op, U belongs to the second blade
   if (k === 'Enter') {
     if (document.activeElement === document.getElementById('sealInput')) return;
@@ -947,7 +988,10 @@ addEventListener('keydown', e => {
   }
   if (k === 'Escape') {
     if (game.state === 'shop') closeShop();
-    else if (game.state === 'shrine') closeShrine();
+    else if (game.state === 'shrine') {
+      // online co-op: only the host may wave the shrine away
+      if (!(netCoop() && net.started && !net.host)) closeShrine();
+    }
     else if (game.state === 'records' || game.state === 'settings') closeMetaOverlay();
     else if (game.state === 'rebirth') closeRebirth();
     else if (game.state === 'playing') pauseGame();
@@ -975,8 +1019,9 @@ addEventListener('blur', () => {
    never sees a cursor. Movement stays on WASD.                     */
 const mouse = { x: W / 2, y: H / 2, seen: false, down: false };
 function mouseAimOn() {
+  // never online: the other sim cannot see this cursor
   return save.mouseAim && mouse.seen && game.state === 'playing' &&
-    game.mode !== 'duel' && !touch.active;
+    game.mode !== 'duel' && !netCoop() && !touch.active;
 }
 function mouseWorld() {   // undo the boss-camera ease around center
   const z = game.zoom || 1;
@@ -1049,6 +1094,14 @@ function touchAction(id) {
     else if (id === 'stance') toggleFighterStance(duel.p1);
     return;
   }
+  if (net && net.started && net.coop) {   // online co-op: taps ride the wire
+    if (id === 'atk') net.pend.atk = true;
+    else if (id === 'roll') net.pend.roll = true;
+    else if (id === 'parry') net.pend.parry = true;
+    else if (id === 'ult') net.pend.ult = true;
+    else if (id === 'stance') net.pend.stance = true;
+    return;
+  }
   if (id === 'atk') {
     if (game.equipped === 'fudemaru') { player.vHeld = true; player.vDownAt = game.time; }
     else if (player.stance === 'sword') player.attackBuf = .18;
@@ -1074,7 +1127,8 @@ cv.addEventListener('touchstart', e => {
     if (!hit && nearInteractable() &&
         dist(p.x, p.y, W / 2, H - 74) < 42) {
       hit = true;
-      tryInteract();
+      if (net && net.started && net.coop) net.pend.interact = true;
+      else tryInteract();
     }
     if (!hit && p.x < W * .55 && touchUI.stickId === null) {
       touchUI.stickId = t.identifier;
@@ -1173,16 +1227,16 @@ function addText(x, y, txt, color, size = 15) {
 }
 function sparks(x, y, ang, color, n = 6, spread = 1.2) {
   for (let i = 0; i < n; i++) {
-    const a = ang + rand(-spread, spread), s = rand(90, 300);
+    const a = ang + crand(-spread, spread), s = crand(90, 300);
     particles.push({ kind: 'line', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-      t: 0, life: rand(.18, .34), color, w: rand(1, 2.5) });
+      t: 0, life: crand(.18, .34), color, w: crand(1, 2.5) });
   }
 }
 function puff(x, y, color, n = 5) {
   for (let i = 0; i < n; i++) {
-    const a = rand(0, TAU), s = rand(20, 70);
+    const a = crand(0, TAU), s = crand(20, 70);
     particles.push({ kind: 'dot', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-      t: 0, life: rand(.25, .5), color, rad: rand(2, 4.5) });
+      t: 0, life: crand(.25, .5), color, rad: crand(2, 4.5) });
   }
 }
 function slashTrail(x, y, r, a0, a1, color, w = 5) {
@@ -1191,11 +1245,11 @@ function slashTrail(x, y, r, a0, a1, color, w = 5) {
 function spawnPetals(x, y, n, tint, owner) {
   // default pigment petals; a tint token turns them to ink in base play
   for (let i = 0; i < n; i++) {
-    const a = rand(0, TAU);
-    particles.push({ kind: 'petal', x: x + rand(-6, 6), y: y + rand(-6, 6),
-      vx: Math.cos(a) * rand(5, 25), vy: rand(10, 32),
-      t: 0, life: rand(.8, 1.4), color: '#d98ea1', tint, owner,
-      rad: rand(1.5, 2.8), spin: rand(0, TAU) });
+    const a = crand(0, TAU);
+    particles.push({ kind: 'petal', x: x + crand(-6, 6), y: y + crand(-6, 6),
+      vx: Math.cos(a) * crand(5, 25), vy: crand(10, 32),
+      t: 0, life: crand(.8, 1.4), color: '#d98ea1', tint, owner,
+      rad: crand(1.5, 2.8), spin: crand(0, TAU) });
   }
 }
 function boltFX(x0, y0, x1, y1, c1, c2) {
@@ -1203,7 +1257,7 @@ function boltFX(x0, y0, x1, y1, c1, c2) {
     const pts = [{ x: x0, y: y0 }];
     for (let i = 1; i < 6; i++) {
       const t = i / 6;
-      pts.push({ x: lerp(x0, x1, t) + rand(-10, 10), y: lerp(y0, y1, t) + rand(-10, 10) });
+      pts.push({ x: lerp(x0, x1, t) + crand(-10, 10), y: lerp(y0, y1, t) + crand(-10, 10) });
     }
     pts.push({ x: x1, y: y1 });
     return pts;
@@ -1242,15 +1296,15 @@ function paintDeathKanji(b) {
   calligraphy.push({
     x: clamp(b.x, ARENA.x + 90, ARENA.x + ARENA.w - 90),
     y: clamp(b.y, ARENA.y + 80, ARENA.y + ARENA.h - 80),
-    ch, rot: rand(-.15, .15), alpha: .16,
+    ch, rot: crand(-.15, .15), alpha: .16,
   });
 }
 function inkSplat(x, y) {
   if (stains.length > 40) stains.shift();
   const blobs = [];
-  for (let i = 0; i < rand(4, 8); i++) {
-    const a = rand(0, TAU), d = rand(0, 22);
-    blobs.push({ dx: Math.cos(a) * d, dy: Math.sin(a) * d, r: rand(2.5, 9) });
+  for (let i = 0; i < crand(4, 8); i++) {
+    const a = crand(0, TAU), d = crand(0, 22);
+    blobs.push({ dx: Math.cos(a) * d, dy: Math.sin(a) * d, r: crand(2.5, 9) });
   }
   stains.push({ x, y, blobs, alpha: .28 });
   puff(x, y, INK, 9);
@@ -1307,7 +1361,7 @@ function brushStroke(pts, opts) {
     ctx.globalAlpha = .35;
     for (let i = 0; i < 2; i++) {
       ctx.beginPath();
-      ctx.arc(tip.x + rand(-3, 3), tip.y + rand(-3, 3), rand(.4, 1.1), 0, TAU);
+      ctx.arc(tip.x + crand(-3, 3), tip.y + crand(-3, 3), crand(.4, 1.1), 0, TAU);
       ctx.fill();
     }
   }
@@ -1329,9 +1383,9 @@ FX_RECIPES.arrowLoose = d => {
   } else {
     for (let i = 0; i < 3; i++)   // a flick of ink off the string
       particles.push({ kind: 'line', x: d.x, y: d.y,
-        vx: Math.cos(d.ang + rand(-.5, .5)) * rand(60, 140),
-        vy: Math.sin(d.ang + rand(-.5, .5)) * rand(60, 140),
-        t: 0, life: rand(.12, .2), tint: 'wash', owner: d.owner, w: 1.2 });
+        vx: Math.cos(d.ang + crand(-.5, .5)) * crand(60, 140),
+        vy: Math.sin(d.ang + crand(-.5, .5)) * crand(60, 140),
+        t: 0, life: crand(.12, .2), tint: 'wash', owner: d.owner, w: 1.2 });
   }
 };
 FX_RECIPES.arrowImpact = d => {
@@ -1339,47 +1393,47 @@ FX_RECIPES.arrowImpact = d => {
   if (!s.glow) {
     // sumi-e: the shaft lands as a directional splatter of ink droplets
     for (let i = 0; i < 6; i++) {
-      const a = d.ang + Math.PI + rand(-1.1, 1.1);
+      const a = d.ang + Math.PI + crand(-1.1, 1.1);
       particles.push({ kind: 'dot', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(30, 160), vy: Math.sin(a) * rand(30, 160),
-        t: 0, life: rand(.2, .45), tint: 'stroke', owner: d.owner, rad: rand(1, 2.6) });
+        vx: Math.cos(a) * crand(30, 160), vy: Math.sin(a) * crand(30, 160),
+        t: 0, life: crand(.2, .45), tint: 'stroke', owner: d.owner, rad: crand(1, 2.6) });
     }
     return;
   }
   const P = PAL.pigment;
   if (d.bowId === 'longbow') {          // Piercing Stroke — the line shatters
     for (let i = 0; i < 8; i++) {
-      const a = rand(0, TAU);
+      const a = crand(0, TAU);
       particles.push({ kind: 'line', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(160, 380), vy: Math.sin(a) * rand(160, 380),
-        t: 0, life: rand(.2, .38),
-        color: i % 2 ? P.imperialGold : '#ffffff', w: rand(1.4, 2.4) });
+        vx: Math.cos(a) * crand(160, 380), vy: Math.sin(a) * crand(160, 380),
+        t: 0, life: crand(.2, .38),
+        color: i % 2 ? P.imperialGold : '#ffffff', w: crand(1.4, 2.4) });
     }
     particles.push({ kind: 'ring', x: d.x, y: d.y, t: 0, life: .3,
       color: P.imperialGold, r0: 4, r1: 46, w: 2.5 });
   } else if (d.bowId === 'repeater') {  // Splatter Volley — pigment bursts
     const cols = [P.cinnabar, P.azurite, P.jade];
     for (let i = 0; i < 10; i++) {
-      const a = rand(0, TAU);
+      const a = crand(0, TAU);
       particles.push({ kind: 'dot', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(40, 260), vy: Math.sin(a) * rand(40, 260) - 40,
-        t: 0, life: rand(.3, .6), color: cols[i % 3], rad: rand(2, 5) });
+        vx: Math.cos(a) * crand(40, 260), vy: Math.sin(a) * crand(40, 260) - 40,
+        t: 0, life: crand(.3, .6), color: cols[i % 3], rad: crand(2, 5) });
     }
   } else if (d.bowId === 'firebow') {   // Binding Scroll — grass-script coils
     const script = ['縛', '封', '結'];
     for (let i = 0; i < 3; i++)
       particles.push({ kind: 'glyph', ch: script[i], color: P.jade,
-        x: d.x + rand(-18, 18), y: d.y + rand(-18, 18),
+        x: d.x + crand(-18, 18), y: d.y + crand(-18, 18),
         vx: 0, vy: -20, t: 0, life: .8 + i * .15, size: 20 + i * 5, misted: false });
     particles.push({ kind: 'ring', x: d.x, y: d.y, t: 0, life: .5,
       color: P.jade, r0: 8, r1: 44, w: 2 });
   } else if (d.bowId === 'stormbow') {  // Painted Beast — the wings burst
     for (let i = 0; i < 8; i++) {
-      const a = d.ang + Math.PI + rand(-1.3, 1.3);
+      const a = d.ang + Math.PI + crand(-1.3, 1.3);
       particles.push({ kind: 'petal', x: d.x, y: d.y,
-        vx: Math.cos(a) * rand(60, 220), vy: Math.sin(a) * rand(60, 220),
-        t: 0, life: rand(.35, .7),
-        color: i % 2 ? P.cinnabar : P.imperialGold, rad: rand(2, 3.4), spin: rand(0, TAU) });
+        vx: Math.cos(a) * crand(60, 220), vy: Math.sin(a) * crand(60, 220),
+        t: 0, life: crand(.35, .7),
+        color: i % 2 ? P.cinnabar : P.imperialGold, rad: crand(2, 3.4), spin: crand(0, TAU) });
     }
     particles.push({ kind: 'glyph', ch: '鳳', color: P.cinnabar,
       x: d.x, y: d.y - 8, vx: 0, vy: -26, t: 0, life: .7, size: 26, misted: false });
@@ -1436,25 +1490,25 @@ FX_RECIPES.slash = d => {
       t: 0, life: .4, tint: 'faint', owner: d.owner, w: deep ? 4.5 : 3 });
     if (deep && d.tipX !== undefined)
       particles.push({ kind: 'dot', x: d.tipX, y: d.tipY,
-        vx: rand(-30, 30), vy: rand(10, 50), t: 0, life: rand(.3, .5),
-        tint: 'stroke', owner: d.owner, rad: rand(1, 2) });
+        vx: crand(-30, 30), vy: crand(10, 50), t: 0, life: crand(.3, .5),
+        tint: 'stroke', owner: d.owner, rad: crand(1, 2) });
     if (deep && d.bladeId === 'botan' && d.tipX !== undefined)
       spawnPetals(d.tipX, d.tipY, 1, 'wash', d.owner);   // the bloom doubles
   }
   if (d.tipX !== undefined && Math.random() < .3)      // droplets off the tip
     particles.push({ kind: 'dot', x: d.tipX, y: d.tipY,
-      vx: rand(-40, 40), vy: rand(-20, 60), t: 0, life: rand(.2, .4),
-      tint: 'wash', owner: d.owner, rad: rand(.8, 1.8) });
+      vx: crand(-40, 40), vy: crand(-20, 60), t: 0, life: crand(.2, .4),
+      tint: 'wash', owner: d.owner, rad: crand(.8, 1.8) });
 };
 // fire status — the pigment rule: a cinnabar wash under charcoal smoke
 FX_RECIPES.burn = d => {
   particles.push({ kind: 'dot', x: d.x, y: d.y - 6,
-    vx: rand(-8, 8), vy: rand(-50, -25),
-    t: 0, life: rand(.4, .7), color: 'rgba(227,66,52,.5)', rad: rand(2, 3.5) });
+    vx: crand(-8, 8), vy: crand(-50, -25),
+    t: 0, life: crand(.4, .7), color: 'rgba(227,66,52,.5)', rad: crand(2, 3.5) });
   for (let i = 0; i < 2; i++)
-    particles.push({ kind: 'dot', x: d.x + rand(-6, 6), y: d.y - 8,
-      vx: rand(-10, 10), vy: rand(-60, -30),
-      t: 0, life: rand(.5, .9), tint: 'faint', owner: null, rad: rand(2, 4) });
+    particles.push({ kind: 'dot', x: d.x + crand(-6, 6), y: d.y - 8,
+      vx: crand(-10, 10), vy: crand(-60, -30),
+      t: 0, life: crand(.5, .9), tint: 'faint', owner: null, rad: crand(2, 4) });
 };
 
 function updateEffects(dt) {
@@ -1748,56 +1802,78 @@ function defaultSave() {
   };
 }
 let save = defaultSave();
+// sanitize any parsed save-shaped object into `save` — shared by disk
+// loads and by the online co-op guest borrowing the host's ledger
+function applySaveData(d) {
+  save = Object.assign(defaultSave(), d);
+  save.upgrades = Object.assign({ hp: 0, spd: 0, dmg: 0, st: 0, rgn: 0 }, d.upgrades);
+  // new fields merge additively — old saves must load without loss
+  save.stats = Object.assign({}, DEFAULT_STATS, d.stats);
+  save.stats.bladeKills = Object.assign({}, d.stats && d.stats.bladeKills);
+  save.audio = Object.assign({ master: .8, sfx: 1, ambient: .7, muted: false }, d.audio);
+  save.mastery = Object.assign({}, d.mastery);
+  if (!Array.isArray(save.achievements)) save.achievements = [];
+  if (!Array.isArray(save.charmsOwned)) save.charmsOwned = [];
+  if (save.charm && !save.charmsOwned.includes(save.charm)) save.charm = null;
+  if (save.charm2 && (!save.charmsOwned.includes(save.charm2) ||
+      save.charm2 === save.charm)) save.charm2 = null;
+  save.recCycles = Object.assign({}, d.recCycles);
+  if (typeof save.shakeMul !== 'number') save.shakeMul = 1;
+  save.mouseAim = !!save.mouseAim;   // additive — old saves default off
+  save.kyudo = Object.assign({ rank: 0, best: 0 }, d.kyudo);
+  save.rebirth = Object.assign({ level: 0 }, d.rebirth);
+  if (!Array.isArray(save.owned) || !save.owned.includes('tetsu')) save.owned = ['tetsu'];
+  // bows arrived later — old saves get the starter quiver for free
+  if (!Array.isArray(save.bowsOwned) || !save.bowsOwned.includes('shortbow'))
+    save.bowsOwned = ['shortbow'].concat(
+      Array.isArray(save.bowsOwned) ? save.bowsOwned.filter(b => BOWS[b]) : []);
+  save.bowsOwned = save.bowsOwned.filter(b => BOWS[b]);
+  if (!BOWS[save.bowEquipped] || !save.bowsOwned.includes(save.bowEquipped))
+    save.bowEquipped = 'shortbow';
+  // progression overhaul fields — old saves gain them at zero
+  save.weaponXP = Object.assign({}, d.weaponXP);
+  save.tomb = Object.assign({ body: 0, stance: 0, edge: 0 }, d.tomb);
+  save.maps = Object.assign({ unlocked: 1, best: [0, 0, 0, 0, 0] }, d.maps);
+  if (!Array.isArray(save.maps.best) || save.maps.best.length !== 5)
+    save.maps.best = [0, 0, 0, 0, 0];
+  // a cleared old-campaign level vouches for the matching map
+  save.maps.unlocked = clamp(Math.max(save.maps.unlocked || 1,
+    Math.min(5, (save.maxLevelCleared || 0) + 1)), 1, 5);
+  save.chestsOpened = save.chestsOpened | 0;
+  save.adminUnlocked = !!save.adminUnlocked;
+  // the brush survives reloads only while the seal stands
+  const fudeOk = save.equipped === 'fudemaru' && save.adminUnlocked;
+  if (!WEAPONS[save.equipped] ||
+      (!fudeOk && (save.equipped === 'fudemaru' || !save.owned.includes(save.equipped))))
+    save.equipped = 'tetsu';
+}
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) {
-      const d = JSON.parse(raw);
-      save = Object.assign(save, d);
-      save.upgrades = Object.assign({ hp: 0, spd: 0, dmg: 0, st: 0, rgn: 0 }, d.upgrades);
-      // new fields merge additively — old saves must load without loss
-      save.stats = Object.assign({}, DEFAULT_STATS, d.stats);
-      save.stats.bladeKills = Object.assign({}, d.stats && d.stats.bladeKills);
-      save.audio = Object.assign({ master: .8, sfx: 1, ambient: .7, muted: false }, d.audio);
-      save.mastery = Object.assign({}, d.mastery);
-      if (!Array.isArray(save.achievements)) save.achievements = [];
-      if (!Array.isArray(save.charmsOwned)) save.charmsOwned = [];
-      if (save.charm && !save.charmsOwned.includes(save.charm)) save.charm = null;
-      if (save.charm2 && (!save.charmsOwned.includes(save.charm2) ||
-          save.charm2 === save.charm)) save.charm2 = null;
-      save.recCycles = Object.assign({}, d.recCycles);
-      if (typeof save.shakeMul !== 'number') save.shakeMul = 1;
-      save.mouseAim = !!save.mouseAim;   // additive — old saves default off
-      save.kyudo = Object.assign({ rank: 0, best: 0 }, d.kyudo);
-      save.rebirth = Object.assign({ level: 0 }, d.rebirth);
-      if (!Array.isArray(save.owned) || !save.owned.includes('tetsu')) save.owned = ['tetsu'];
-      // bows arrived later — old saves get the starter quiver for free
-      if (!Array.isArray(save.bowsOwned) || !save.bowsOwned.includes('shortbow'))
-        save.bowsOwned = ['shortbow'].concat(
-          Array.isArray(save.bowsOwned) ? save.bowsOwned.filter(b => BOWS[b]) : []);
-      save.bowsOwned = save.bowsOwned.filter(b => BOWS[b]);
-      if (!BOWS[save.bowEquipped] || !save.bowsOwned.includes(save.bowEquipped))
-        save.bowEquipped = 'shortbow';
-      // progression overhaul fields — old saves gain them at zero
-      save.weaponXP = Object.assign({}, d.weaponXP);
-      save.tomb = Object.assign({ body: 0, stance: 0, edge: 0 }, d.tomb);
-      save.maps = Object.assign({ unlocked: 1, best: [0, 0, 0, 0, 0] }, d.maps);
-      if (!Array.isArray(save.maps.best) || save.maps.best.length !== 5)
-        save.maps.best = [0, 0, 0, 0, 0];
-      // a cleared old-campaign level vouches for the matching map
-      save.maps.unlocked = clamp(Math.max(save.maps.unlocked || 1,
-        Math.min(5, (save.maxLevelCleared || 0) + 1)), 1, 5);
-      save.chestsOpened = save.chestsOpened | 0;
-      save.adminUnlocked = !!save.adminUnlocked;
-      // the brush survives reloads only while the seal stands
-      const fudeOk = save.equipped === 'fudemaru' && save.adminUnlocked;
-      if (!WEAPONS[save.equipped] ||
-          (!fudeOk && (save.equipped === 'fudemaru' || !save.owned.includes(save.equipped))))
-        save.equipped = 'tetsu';
-    }
+    if (raw) applySaveData(JSON.parse(raw));
   } catch (e) { /* corrupted or blocked storage — start fresh */ }
 }
+/* ---------- online co-op: the guest runs on the HOST's ledger ----------
+   Both lockstep sims must share P1's exact statline, so the guest
+   borrows the host's save for the run. Mid-run writes land on the
+   borrowed copy (both sims write identically — sim state), the disk is
+   never touched while borrowed, and the guest's own ledger returns at
+   the menu door.                                                       */
+let saveBackup = null;
+function saveBorrowed() { return saveBackup !== null; }
+function borrowSave(data) {
+  if (saveBackup) return;
+  saveBackup = save;
+  try { applySaveData(data || {}); }
+  catch (e) { save = defaultSave(); }
+}
+function restoreSave() {
+  if (!saveBackup) return;
+  save = saveBackup;
+  saveBackup = null;
+}
 function persistSave() {
+  if (saveBackup) return;   // a borrowed ledger is never written to disk
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {}
 }
 loadSave();
@@ -2095,6 +2171,7 @@ function resetPlayer() {
     hollowT: 0, hollowSpent: false,   // 虚 — the price of an empty chest
     attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
     downed: false,
+    netCtl: null,   // online co-op re-arms this after startRun
   });
   player.hp = player.maxHp; player.st = player.maxSt;
   player.x = ARENA.x + ARENA.w / 2; player.y = ARENA.y + ARENA.h / 2;
@@ -2119,6 +2196,7 @@ function makeP2(bladeId, bowId) {
     hollowT: 0, hollowSpent: false,
     attackBuf: 0, dodgeBuf: 0, parryBuf: 0,
     downed: false, meditating: false,
+    netCtl: null,   // online co-op re-arms this after startRun
   };
   p2.hp = p2.maxHp;
   return p2;
@@ -2314,6 +2392,12 @@ function playerDrawing() {
    mouse; P2 owns the arrows and the duel-style U/I/O/P/, row */
 function gatherInput(pl) {
   let mx, my, held, med;
+  if (pl.netCtl) {
+    // 網 online co-op: both blades are fed exclusively by the tick-stamped
+    // bitmask — local keys never touch an entity directly
+    return { mx: pl.netCtl.mx || 0, my: pl.netCtl.my || 0,
+             held: !!pl.netCtl.atkHeld, med: !!pl.netCtl.med };
+  }
   if (pl.p2) {
     mx = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
     my = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
@@ -2448,7 +2532,7 @@ function updateSamurai(pl, dt) {
       pl.st + regenRate * (hasBless('tempo') ? 1.25 : 1) *
       (pl.regenDelay <= 0 ? 2 : 3) * dt);
     if (Math.random() < dt * 7)
-      particles.push({ kind: 'dot', x: pl.x + rand(-8, 8), y: pl.y - pl.r,
+      particles.push({ kind: 'dot', x: pl.x + crand(-8, 8), y: pl.y - pl.r,
         vx: 0, vy: -34, t: 0, life: .8, color: 'rgba(168,132,58,.55)', rad: 1.8 });
   }
 
@@ -2601,7 +2685,7 @@ function updateSamurai(pl, dt) {
     particles.push({ kind: 'line',
       x: pl.x + Math.cos(ba) * (pl.r + 26),
       y: pl.y + Math.sin(ba) * (pl.r + 26),
-      vx: rand(-60, 60), vy: rand(-60, 60),
+      vx: crand(-60, 60), vy: crand(-60, 60),
       t: 0, life: .15, tint: 'faint', owner: pl, w: 1.2 });
   }
   // Fudemaru: bristles drip ink that never quite lands; spirit never tires
@@ -2650,7 +2734,7 @@ class Enemy {
     this.holdDist = 130;
     this.didHit = false; this.dodgeAwarded = false;
     this.hitBy = 0;
-    this.orbitDir = Math.random() < .5 ? 1 : -1;
+    this.orbitDir = srandom() < .5 ? 1 : -1;
     this.orbitFlipT = rand(1.2, 2.8);
     this.honorKill = 40;
     this.weapon = 'club';
@@ -2934,7 +3018,7 @@ class Enemy {
   }
   st_recover(dt) {
     if (this.stateT >= this.recoverDur)
-      this.setState(Math.random() < .3 ? 'retreat' : 'approach');
+      this.setState(srandom() < .3 ? 'retreat' : 'approach');
   }
   st_retreat(dt) {
     const ang = this.angTo();
@@ -3003,7 +3087,7 @@ class Duelist extends Enemy {
         this.punishNext = false;
         this.setState('windup', { dur: .28, noDelay: true });   // fast punish stab
       } else {
-        const feint = Math.random() < adapt.feintChance(.22);
+        const feint = srandom() < adapt.feintChance(.22);
         this.setState('windup', { feint });
       }
     } else if (this.stateT > 2.2) { this.dropToken(); this.setState('circle'); }
@@ -3097,7 +3181,7 @@ class Archer extends Enemy {
     const lead = aimLead(T.x, T.y, T.vx, T.vy,
                          this.x, this.y, this.arrowSpeed);
     this.face = Math.atan2(lead.y - this.y, lead.x - this.x);
-    if (this.d() < 110 && Math.random() < .5) {   // pressured: bail out
+    if (this.d() < 110 && srandom() < .5) {   // pressured: bail out
       this.dropToken();
       this.fireCd = .8;
       const ang = this.angTo();
@@ -3347,14 +3431,14 @@ class GateSentinel extends Grunt {
     this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.35, dt);
     if (this.d() < this.attackRange + 10) {
       const T = this.dmgTuned || 1;
-      if (Math.random() < .42) {          // gate-slam: wide, heavy, slow
+      if (srandom() < .42) {          // gate-slam: wide, heavy, slow
         this.attackRange = 168; this.attackArc = 2.7;
         this.dmg = Math.round(26 * T); this.heavy = true;
         this.setState('windup', { dur: 1.2 / Math.sqrt(eAggro()) });
       } else {                            // straight cut — feintable when reforged
         this.attackRange = 132; this.attackArc = 1.9;
         this.dmg = Math.round(18 * T); this.heavy = false;
-        const feint = this.reforged && Math.random() < adapt.feintChance(.3);
+        const feint = this.reforged && srandom() < adapt.feintChance(.3);
         this.setState('windup', { feint });
       }
     } else if (this.stateT > 3) { this.dropToken(); this.setState('circle'); }
@@ -3448,7 +3532,7 @@ class IronBrute extends Brute {
     this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.5, dt);
     if (this.d() < this.attackRange - 6) {
       const T = this.dmgTuned || 1;
-      this.slamNext = Math.random() < .45;
+      this.slamNext = srandom() < .45;
       if (this.slamNext) {   // earthbreaker: full-circle slam + expanding shock ring
         this.attackRange = 120; this.attackArc = TAU;
         this.dmg = Math.round(24 * T);
@@ -3555,7 +3639,7 @@ class StormSovereign extends Enemy {
     this.moveToward(this.tgt().x, this.tgt().y, this.speed * 1.5, dt);
     if (this.d() < this.attackRange - 4) {
       if (this.punishNext) { this.punishNext = false; this.setState('windup', { dur: .3, noDelay: true }); }
-      else this.setState('windup', { feint: Math.random() < adapt.feintChance(.3) });
+      else this.setState('windup', { feint: srandom() < adapt.feintChance(.3) });
     } else if (this.stateT > 2.3) { this.dropToken(); this.setState('circle'); }
   }
   st_feintwait(dt) {
@@ -3575,7 +3659,7 @@ function makeElite(e) {
   e.elite = true;
   const pool = e instanceof Archer ? ['split', 'swift', 'stoneguard']
                                    : ['swift', 'aura', 'stoneguard'];
-  e.affix = pool[Math.floor(Math.random() * pool.length)];
+  e.affix = pool[Math.floor(srandom() * pool.length)];
   e.hp = e.maxHp = Math.round(e.maxHp * 1.4);
   e.dmg = Math.round(e.dmg * 1.15);
   e.honorOrb = Math.round(rand(15, 30));
@@ -4010,7 +4094,7 @@ const ULT_STEP = {
       ultTrail.push({ x: e.x, y: e.y, t: game.time });
       slashTrail(e.x, e.y, 60, e.face - .7, e.face + .7, nz[0], 5);
       for (let i = 0; i < 5; i++)
-        particles.push({ kind: 'line', x: t.x + rand(-16, 16), y: t.y - rand(10, 40),
+        particles.push({ kind: 'line', x: t.x + crand(-16, 16), y: t.y - crand(10, 40),
           vx: 0, vy: 210, t: 0, life: .25, color: 'rgba(56,189,248,.8)', w: 1.4 });
       A.hit(t, A.dmg(2), e.face, { posture: 13 });
       freeze(.05); shake(4);
@@ -4040,8 +4124,8 @@ const ULT_STEP = {
       clampArena(e);
       ultTrail.push({ x: e.x, y: e.y - 18, t: game.time });
       if (Math.random() < dt * 30)   // shed quills — cosmetic dice only
-        particles.push({ kind: 'petal', x: e.x, y: e.y - 16, vx: rand(-20, 20), vy: rand(10, 40),
-          t: 0, life: .6, color: '#fcfaf4', rad: 2, spin: rand(0, TAU) });
+        particles.push({ kind: 'petal', x: e.x, y: e.y - 16, vx: crand(-20, 20), vy: crand(10, 40),
+          t: 0, life: .6, color: '#fcfaf4', rad: 2, spin: crand(0, TAU) });
       if (s.t2 >= .35) { s.stage = 2; s.t2 = 0; }
     } else {
       if (!s.dove) {
@@ -4158,9 +4242,9 @@ const ULT_STEP = {
     clampArena(e);
     ultTrail.push({ x: e.x + dash.dx * 22, y: e.y + dash.dy * 22, t: game.time });
     if (Math.random() < dt * 60)   // ink rains off the bristles — cosmetic
-      particles.push({ kind: 'dot', x: e.x + rand(-14, 14), y: e.y + rand(-14, 14),
-        vx: rand(-30, 30), vy: rand(20, 80), t: 0, life: rand(.3, .6),
-        color: 'rgba(43,35,32,.65)', rad: rand(1.5, 3.5) });
+      particles.push({ kind: 'dot', x: e.x + crand(-14, 14), y: e.y + crand(-14, 14),
+        vx: crand(-30, 30), vy: crand(20, 80), t: 0, life: crand(.3, .6),
+        color: 'rgba(43,35,32,.65)', rad: crand(1.5, 3.5) });
     // five slashes spaced evenly across the lunge — the original timing, kept
     while (dash.done < dash.hits &&
            dash.t >= dash.dur * (dash.done + 1) / (dash.hits + 1)) {
@@ -4237,8 +4321,8 @@ function updateUltWaves(dt) {
       }
     }
     if (Math.random() < dt * 30)   // crackle — cosmetic
-      particles.push({ kind: 'line', x: w.x + rand(-w.r, w.r), y: w.y + rand(-w.r, w.r),
-        vx: rand(-80, 80), vy: rand(-80, 80), t: 0, life: .12, color: '#9fc2ff', w: 1.4 });
+      particles.push({ kind: 'line', x: w.x + crand(-w.r, w.r), y: w.y + crand(-w.r, w.r),
+        vx: crand(-80, 80), vy: crand(-80, 80), t: 0, life: .12, color: '#9fc2ff', w: 1.4 });
   }
   ultWaves = ultWaves.filter(w => !w.dead);
 }
@@ -4590,17 +4674,27 @@ function openShrine() {
   const pool = BLESSINGS.filter(b => !game.blessings.includes(b.id));
   const picks = [];
   while (picks.length < 3 && pool.length)
-    picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    picks.push(pool.splice(Math.floor(srandom() * pool.length), 1)[0]);
   for (const b of picks) {
     const btn = document.createElement('button');
     btn.className = 'blessCard';
     btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}<span class="bd">${b.desc}</span>`;
-    btn.onclick = () => pickBlessing(b.id);
+    // online co-op: the shrine answers the host's hand alone — the guest's
+    // sim applies the same pick when it crosses the wire
+    btn.onclick = () => { if (netCoop() && net.started && !net.host) return; pickBlessing(b.id); };
     row.appendChild(btn);
   }
   showOverlay('shrine');
+  if (netCoop() && net.started && !net.host && net.blessQ) {
+    const q = net.blessQ;              // the host chose before our sim arrived
+    net.blessQ = null;
+    if (q.close) closeShrine(); else pickBlessing(q.id);
+  }
 }
 function pickBlessing(id) {
+  if (netCoop() && net.started && net.host) {
+    try { net.conn.send({ t: 'bless', id }); } catch (e) {}
+  }
   game.blessings.push(id);
   award('blessed');
   // blessings are run-scoped and bless the whole party, P2 included
@@ -4618,6 +4712,9 @@ function pickBlessing(id) {
   showOverlay('none');
 }
 function closeShrine() {   // walk on — the shrine keeps waiting
+  if (netCoop() && net.started && net.host) {
+    try { net.conn.send({ t: 'blessClose' }); } catch (e) {}
+  }
   game.state = 'playing';
   showOverlay('none');
 }
@@ -4633,7 +4730,7 @@ function setupHazards(ti) {
     for (const fx of [.33, .66]) {
       const lx = ARENA.x + ARENA.w * fx;
       for (let y = ARENA.y + 40; y < ARENA.y + ARENA.h - 30; y += 58) {
-        if (Math.random() < .8)
+        if (srandom() < .8)
           stalks.push({ x: lx + rand(-8, 8), y: y + rand(-10, 10),
                         r: 9, hp: 2, dead: false, hitBy: 0 });
       }
@@ -4686,24 +4783,27 @@ function updateHazards(dt) {
   }
 }
 function updateAmbient(dt) {
+  // pure atmosphere — every die here is the COSMETIC one: these blocks
+  // fire behind local Math.random gates, and a gated pull on the sim
+  // stream would silently desync an online co-op lockstep
   const ti = themeIndex;
   if (ti === 0 && Math.random() < dt * 2.2) {          // drifting sakura
-    particles.push({ kind: 'petal', x: rand(ARENA.x, ARENA.x + ARENA.w), y: ARENA.y - 10,
-      vx: rand(8, 30), vy: rand(14, 30), t: 0, life: rand(1.6, 2.6),
-      tint: 'faint', owner: null, rad: rand(1.5, 2.6), spin: rand(0, TAU) });
+    particles.push({ kind: 'petal', x: crand(ARENA.x, ARENA.x + ARENA.w), y: ARENA.y - 10,
+      vx: crand(8, 30), vy: crand(14, 30), t: 0, life: crand(1.6, 2.6),
+      tint: 'faint', owner: null, rad: crand(1.5, 2.6), spin: crand(0, TAU) });
   }
   if (ti === 3 && fireZones.length && Math.random() < dt * 10) {   // rising embers
-    const f = fireZones[Math.floor(rand(0, fireZones.length))];
-    particles.push({ kind: 'dot', x: f.x + rand(-f.r, f.r), y: f.y + rand(-f.r * .6, f.r * .6),
-      vx: rand(-12, 12), vy: rand(-70, -30), t: 0, life: rand(.6, 1.3),
+    const f = fireZones[Math.floor(crand(0, fireZones.length))];
+    particles.push({ kind: 'dot', x: f.x + crand(-f.r, f.r), y: f.y + crand(-f.r * .6, f.r * .6),
+      vx: crand(-12, 12), vy: crand(-70, -30), t: 0, life: crand(.6, 1.3),
       color: Math.random() < .6 ? 'rgba(74,64,56,.6)' : 'rgba(50,44,38,.55)',
-      rad: rand(1.5, 3) });
+      rad: crand(1.5, 3) });
   }
   if (ti === 4 && Math.random() < dt * .22) {          // shrine lightning
     game.flashT = .3;
-    const fx = rand(ARENA.x, ARENA.x + ARENA.w);
+    const fx = crand(ARENA.x, ARENA.x + ARENA.w);
     // ambient lightning strikes in ink — the sky keeps no pigment either
-    boltFX(fx + rand(-60, 60), -10, fx, rand(ARENA.y, ARENA.y + 120),
+    boltFX(fx + crand(-60, 60), -10, fx, crand(ARENA.y, ARENA.y + 120),
            'rgba(96,88,82,.85)', 'rgba(240,238,232,.95)');
     playSfx('bolt');
   }
@@ -4786,7 +4886,7 @@ function updatePortal(dt) {
   portal.t += dt;
   // ambient inward pull — motes fall into the rift
   if (Math.random() < dt * 30) {
-    const a = rand(0, TAU), d = rand(45, 95);
+    const a = crand(0, TAU), d = crand(45, 95);
     particles.push({ kind: 'line',
       x: portal.x + Math.cos(a) * d, y: portal.y + Math.sin(a) * d,
       vx: -Math.cos(a) * 95, vy: -Math.sin(a) * 95,
@@ -5128,9 +5228,9 @@ function updateBurnZones(dt) {
     b.t += dt; b.tick -= dt;
     if (Math.random() < dt * 14)   // rising smoke — gray ink in base, the
       // owner's pigment under a surge; the tint resolves fresh at draw time
-      particles.push({ kind: 'dot', x: b.x + rand(-b.r, b.r) * .8, y: b.y + rand(-b.r, b.r) * .6,
-        vx: rand(-10, 10), vy: rand(-60, -25), t: 0, life: rand(.4, .9),
-        tint: Math.random() < .6 ? 'wash' : 'faint', owner: b.owner, rad: rand(1.5, 2.6) });
+      particles.push({ kind: 'dot', x: b.x + crand(-b.r, b.r) * .8, y: b.y + crand(-b.r, b.r) * .6,
+        vx: crand(-10, 10), vy: crand(-60, -25), t: 0, life: crand(.4, .9),
+        tint: Math.random() < .6 ? 'wash' : 'faint', owner: b.owner, rad: crand(1.5, 2.6) });
     if (b.tick <= 0) {
       b.tick = .4;
       if (b.pvp) {
@@ -6364,19 +6464,25 @@ function drawDuelHUD() {
   }
 }
 
-/* ---------- online duel: PeerJS + input lockstep ----------
+/* ---------- online play: PeerJS + input lockstep ----------
    Only inputs cross the wire. Both browsers run identical simulations
    with a 3-tick input delay; the reliable ordered DataChannel means no
-   loss handling, only latency. Cosmetic randomness (particles) never
-   touches fighter state, so the sims cannot drift. Restricted to the
-   dojo ground — its hazards are none, its floor deterministic.         */
+   loss handling, only latency. Two session kinds share the pipeline:
+   'duel' (1v1, dojo-locked) and 'coop' (二人 PvE — infinite/rush).
+   Co-op determinism rests on three legs: the sim rolls only from the
+   seeded stream (setSimSeed, 00-util), the guest borrows the host's
+   ledger (borrowSave, 25-save) so P1's statline matches, and every
+   player action rides the tick-stamped bitmask — never a local key.
+   A periodic state checksum severs the line honestly if they drift.   */
 const NET_DELAY = 3;   // minimum input delay in ticks; a pre-match RTT probe raises it
-let net = null;   // {peer, conn, host, started, tick, delay, acc, sendAcc, sendTick,
-                  //  localQ, remoteQ, pend, rtt, stall}
+let net = null;   // {peer, conn, host, kind, started, tick, delay, acc, sendAcc,
+                  //  sendTick, localQ, remoteQ, pend, rtt, stall, coop}
+let netMsgEl = 'netMsg';   // which menu box speaks — the duel's or the co-op's
 function netStatus(msg, bad) {
-  const el = document.getElementById('netMsg');
+  const el = document.getElementById(netMsgEl);
   if (el) { el.textContent = msg || ''; el.style.color = bad ? 'var(--red)' : 'var(--gold)'; }
 }
+function netCoop() { return !!(net && net.coop); }
 /* STUN discovers each side's public address so ordinary home NATs can
    hole-punch a direct path; two tabs on one machine never needed it, which
    is why local tests pass while two houses stall. Strict/symmetric NATs
@@ -6403,16 +6509,19 @@ function netCleanup() {
   if (!net) return;
   const n = net;
   net = null;
+  setSimSeed(null);   // offline play rolls free dice again
   try { n.conn && n.conn.close(); } catch (e) {}
   try { n.peer && n.peer.destroy(); } catch (e) {}
 }
 function netDropped(msg) {
   const wasLive = net && net.started;
+  const wasCoop = net && net.coop;
   netCleanup();
-  if (wasLive && game.mode === 'duel') {
+  if (wasLive && (game.mode === 'duel' || wasCoop)) {
     setBanner('the line is severed', 2.5);
     returnToMenu();
-    netStatus(msg || 'connection lost — the duel ends', true);
+    netStatus(msg || (wasCoop ? 'connection lost — the storm scatters'
+                              : 'connection lost — the duel ends'), true);
   } else {
     netStatus(msg || 'connection failed — strict NATs may block the path; try another network', true);
   }
@@ -6435,8 +6544,17 @@ function wireConn(conn) {
   conn.on('open', () => {
     clearTimeout(stallT);
     if (!net) return;
-    if (net.host) netStatus('challenger connected — crossing blades…');
-    else conn.send({ t: 'join', blade: menuSel.p1Blade, bow: menuSel.p1Bow });
+    if (net.host) {
+      netStatus(net.kind === 'coop' ? 'a second blade arrives — stringing the wire…'
+                                    : 'challenger connected — crossing blades…');
+    } else if (net.kind === 'coop') {
+      // the guest fights as P2 — their co-op picks ride the join
+      conn.send({ t: 'join', kind: 'coop',
+                  blade: menuSel.p2Blade, bow: menuSel.p2Bow });
+    } else {
+      conn.send({ t: 'join', kind: 'duel',
+                  blade: menuSel.p1Blade, bow: menuSel.p1Bow });
+    }
   });
   conn.on('data', onNetData);
   conn.on('close', () => {
@@ -6448,27 +6566,35 @@ function wireConn(conn) {
     if (!conn.abandoned) netDropped();
   });
 }
-function hostDuel() {
+function hostGame(kind) {
   if (net) netCleanup();
+  netMsgEl = kind === 'coop' ? 'coopNetMsg' : 'netMsg';
   loadPeerJS(err => {
     if (err) return netStatus(err, true);
     const code = Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(0, 5) || 'inkbl';
     const peer = new window.Peer('inkblade-' + code, { config: ICE_CONFIG });
-    net = { peer, host: true, started: false, code };
+    net = { peer, host: true, started: false, code, kind };
     peer.on('open', () =>
-      netStatus('room code: ' + code.toUpperCase() + ' — send it to your challenger and wait'));
+      netStatus('room code: ' + code.toUpperCase() +
+        (kind === 'coop' ? ' — send it to your partner and wait'
+                         : ' — send it to your challenger and wait')));
     peer.on('connection', c => { if (net) wireConn(c); });
     peer.on('error', e => netDropped('signal failed (' + (e && e.type || 'error') + ')'));
   });
 }
-function joinDuel(code) {
+function hostDuel() { hostGame('duel'); }
+function hostCoop() { hostGame('coop'); }
+function joinDuel(code) { joinGame('duel', code); }
+function joinCoop(code) { joinGame('coop', code); }
+function joinGame(kind, code) {
   if (net) netCleanup();
+  netMsgEl = kind === 'coop' ? 'coopNetMsg' : 'netMsg';
   code = (code || '').trim().toLowerCase();
   if (!code) return netStatus('enter the host’s code first', true);
   loadPeerJS(err => {
     if (err) return netStatus(err, true);
     const peer = new window.Peer({ config: ICE_CONFIG });
-    net = { peer, host: false, started: false };
+    net = { peer, host: false, started: false, kind };
     netStatus('seeking the host…');
     // reliable:false → PeerJS opens the channel UNORDERED (still retransmitting).
     // Inputs are keyed by tick, so order is irrelevant — and one late packet
@@ -6482,12 +6608,23 @@ function joinDuel(code) {
 function onNetData(d) {
   if (!net || !d) return;
   if (d.t === 'join' && net.host && !net.started) {
+    if ((d.kind || 'duel') !== net.kind) {
+      try { net.conn.send({ t: 'kindErr', want: net.kind }); } catch (e) {}
+      netStatus(net.kind === 'coop'
+        ? 'that code answered a duelist — this room hosts a co-op storm'
+        : 'that code answered a co-op partner — this room hosts a duel', true);
+      return;
+    }
     // measure the wire before the first blade is drawn — the round trip
     // sizes the input delay for the whole match
     net.guestBlade = d.blade;
     net.guestBow = d.bow;
     netStatus('measuring the wire…');
     net.conn.send({ t: 'probe', ts: performance.now() });
+  } else if (d.t === 'kindErr' && !net.host) {
+    netDropped(d.want === 'coop'
+      ? 'that room hosts a co-op storm — join it from the CO-OP door'
+      : 'that room hosts a duel — join it from the DUEL door');
   } else if (d.t === 'probe' && !net.host) {
     net.conn.send({ t: 'probeAck', ts: d.ts });
   } else if (d.t === 'probeAck' && net.host && !net.started) {
@@ -6496,15 +6633,54 @@ function onNetData(d) {
     // one-way trip in ticks, plus two of headroom — a 40ms wire plays at
     // the old feel (3), a 200ms wire flows at 8 instead of stuttering
     const delay = clamp(Math.round(rtt / 2 / (1000 / 60)) + 2, NET_DELAY, 9);
-    net.conn.send({ t: 'start', hostBlade: menuSel.p1Blade, guestBlade: net.guestBlade,
-                    hostBow: menuSel.p1Bow, guestBow: net.guestBow,
-                    mut: menuSel.mut, delay });
-    startOnlineDuel(menuSel.p1Blade, net.guestBlade, menuSel.mut, delay,
-                    menuSel.p1Bow, net.guestBow);
+    if (net.kind === 'coop') {
+      // the storm is the host's: seed, ledger, mode and burdens all ride
+      // the start message so both sims are born identical
+      const cfg = {
+        t: 'coopStart', delay,
+        seed: (Math.random() * 0x7fffffff) | 0 || 1,
+        mode: menuSel.mode === 'rush' ? 'rush' : 'infinite',
+        chaos: !!menuSel.chaos,
+        diff: menuSel.diff, curses: menuSel.curses.slice(),
+        p2Blade: net.guestBlade, p2Bow: net.guestBow,
+        save: JSON.parse(JSON.stringify(save)),
+      };
+      net.conn.send(cfg);
+      startOnlineCoop(cfg);
+    } else {
+      net.conn.send({ t: 'start', hostBlade: menuSel.p1Blade, guestBlade: net.guestBlade,
+                      hostBow: menuSel.p1Bow, guestBow: net.guestBow,
+                      mut: menuSel.mut, delay });
+      startOnlineDuel(menuSel.p1Blade, net.guestBlade, menuSel.mut, delay,
+                      menuSel.p1Bow, net.guestBow);
+    }
   } else if (d.t === 'start' && !net.host && !net.started) {
     startOnlineDuel(d.hostBlade, d.guestBlade, d.mut, d.delay, d.hostBow, d.guestBow);
+  } else if (d.t === 'coopStart' && !net.host && !net.started) {
+    startOnlineCoop(d);
   } else if (d.t === 'in') {
     net.remoteQ[d.k] = d.b;
+  } else if (d.t === 'bless') {
+    // the host's shrine pick — apply now if our sim has reached the
+    // shrine, or hold it until our tick opens the scroll (unordered wire)
+    if (net.coop && !net.host) {
+      if (game.state === 'shrine') pickBlessing(d.id);
+      else net.blessQ = { id: d.id };
+    }
+  } else if (d.t === 'blessClose') {
+    if (net.coop && !net.host) {
+      if (game.state === 'shrine') closeShrine();
+      else net.blessQ = { close: true };
+    }
+  } else if (d.t === 'pause') {
+    if (net.coop && game.state === 'playing') pauseGame();
+  } else if (d.t === 'resume') {
+    if (net.coop && game.state === 'paused') resumeGame();
+  } else if (d.t === 'ck') {
+    if (net.started && net.coop) {
+      net.ckRemote[d.k] = d.h;
+      netCkCompare();
+    }
   } else if (d.t === 'ping') {
     try { net.conn.send({ t: 'pong', ts: d.ts }); } catch (e) {}
   } else if (d.t === 'pong') {
@@ -6543,6 +6719,58 @@ function startOnlineDuel(hostBlade, guestBlade, mut, delay, hostBow, guestBow) {
   net.sendTick = net.delay;
   setBanner('決闘 ONLINE — ROUND 1 · first to 2', 2.2);
 }
+/* ---------- 二人 online co-op: one storm, two houses ---------- */
+function startOnlineCoop(cfg) {
+  if (!net) return;
+  if (!net.host) borrowSave(cfg.save);   // the guest fights on the host's ledger
+  menuSel.diff = clamp(cfg.diff | 0, 1, 10);
+  menuSel.curses = Array.isArray(cfg.curses) ? cfg.curses.slice() : [];
+  menuSel.chaos = !!cfg.chaos;
+  menuSel.p2Blade = WEAPONS[cfg.p2Blade] && !WEAPONS[cfg.p2Blade].admin
+    ? cfg.p2Blade : 'tetsu';
+  menuSel.p2Bow = BOWS[cfg.p2Bow] ? cfg.p2Bow : 'shortbow';
+  net.coop = true;
+  setSimSeed(cfg.seed);                  // every sim roll now comes from here
+  startRun(cfg.mode === 'rush' ? 'rush' : 'infinite');
+  // the brush cannot reach across the wire — its casts ride keyups, not ticks
+  if (game.equipped === 'fudemaru') game.equipped = 'tetsu';
+  player.netCtl = { mx: 0, my: 0 };
+  p2.netCtl = { mx: 0, my: 0 };
+  Object.assign(net, {
+    started: true, tick: 0, acc: 0, sendAcc: 0,
+    delay: clamp(cfg.delay || NET_DELAY, NET_DELAY, 9),
+    localQ: {}, remoteQ: {},
+    pend: { atk: false, roll: false, parry: false, ult: false,
+            swap: false, stance: false, interact: false },
+    rtt: net.rtt || 0, stall: false, pingT: 0,
+    ckLocal: {}, ckRemote: {}, blessQ: null,
+  });
+  for (let k = 0; k < net.delay; k++) {
+    net.localQ[k] = 0;
+    try { net.conn.send({ t: 'in', k, b: 0 }); } catch (e) {}
+  }
+  net.sendTick = net.delay;
+  setBanner('二人 ONLINE — the storm takes two houses', 2.4);
+}
+// a cheap positional digest — identical sims give identical doubles, so
+// any mismatch means the lockstep broke and the line should own up to it
+function coopChecksum() {
+  let h = hash2(game.wave | 0, (game.stage | 0) + enemies.length * 31 + 7);
+  const mix = v => { h = hash2(h, (Math.round(v * 64) | 0) + 0x9e37); };
+  for (const P of allPlayers()) { mix(P.x); mix(P.y); mix(P.hp); mix(P.st); }
+  for (const e of enemies) if (!e.dead) { mix(e.x); mix(e.y); mix(e.hp); }
+  mix(game.honor);
+  return h >>> 0;
+}
+function netCkCompare() {
+  if (!net || !net.ckLocal) return;
+  for (const k in net.ckRemote) {
+    if (net.ckLocal[k] === undefined) continue;
+    const same = net.ckLocal[k] === net.ckRemote[k];
+    delete net.ckRemote[k]; delete net.ckLocal[k];
+    if (!same) { netDropped('the sims drifted apart — the line owns up and lets go'); return; }
+  }
+}
 function sampleLocalBits() {
   let b = 0;
   if (touch.active) {
@@ -6565,8 +6793,9 @@ function sampleLocalBits() {
   if (net.pend.stance) b |= 1024;      // 弓 stance toggle
   if (keys.v || keys.u || touchUI.pressed.atk !== undefined)
     b |= 2048;                         // attack HELD — the bow draw rides this
+  if (net.pend.interact) b |= 4096;    // co-op: E rides the wire (host's P1)
   net.pend.atk = net.pend.roll = net.pend.parry =
-    net.pend.ult = net.pend.swap = net.pend.stance = false;
+    net.pend.ult = net.pend.swap = net.pend.stance = net.pend.interact = false;
   return b;
 }
 function applyBits(f, b) {
@@ -6577,9 +6806,17 @@ function applyBits(f, b) {
   if (b & 16) f.attackBuf = .1;
   if (b & 32) f.dodgeBuf = .1;
   if (b & 64) f.parryBuf = .1;
-  if (b & 128) toggleFighterUlt(f);    // brush maw — or the 奥義 art on a plain blade
-  if (b & 256) toggleFighterSwap(f);
-  if (b & 1024) toggleFighterStance(f);
+  if (net && net.coop) {
+    // samurai speak the PvE tongue: 奥義 and shrine doors are P1's alone,
+    // the bow stance belongs to both; the brush swap has no meaning here
+    if ((b & 128) && f === player) activateUlt();
+    if (b & 1024) toggleStanceFor(f);
+    if ((b & 4096) && f === player) tryInteract();
+  } else {
+    if (b & 128) toggleFighterUlt(f);    // brush maw — or the 奥義 art on a plain blade
+    if (b & 256) toggleFighterSwap(f);
+    if (b & 1024) toggleFighterStance(f);
+  }
 }
 function commitLocal(k) {   // sample now, remember, and put it on the wire
   if (net.localQ[k] !== undefined) return;
@@ -6588,6 +6825,10 @@ function commitLocal(k) {   // sample now, remember, and put it on the wire
   try { net.conn.send({ t: 'in', k, b }); } catch (e) {}
 }
 function netFrame(rawDt) {
+  // a hanging scroll (shrine, pause, game over) freezes the lockstep on
+  // BOTH sims at the same tick — stepping through one would let the two
+  // simulations apply the pick at different ticks and drift
+  if (game.state !== 'playing') return;
   // commit inputs on the WALL clock, independent of sim progress — the
   // pipe stays full through a stall, so both sides recover in a burst
   // instead of waiting out a fresh round trip of mutual silence
@@ -6608,13 +6849,25 @@ function netFrame(rawDt) {
     if (net.acc < 1 / 60 && !backlog) break;
     commitLocal(k);                                  // never stall on ourselves
     if (net.sendTick <= k) net.sendTick = k + 1;
-    applyBits(net.host ? duel.p1 : duel.p2, net.localQ[k]);
-    applyBits(net.host ? duel.p2 : duel.p1, net.remoteQ[k]);
-    update(1 / 60);                            // the duel branch is deterministic
+    const mine = net.coop ? (net.host ? player : p2) : (net.host ? duel.p1 : duel.p2);
+    const theirs = net.coop ? (net.host ? p2 : player) : (net.host ? duel.p2 : duel.p1);
+    applyBits(mine, net.localQ[k]);
+    applyBits(theirs, net.remoteQ[k]);
+    update(1 / 60);                            // both branches are deterministic
     if (!net) return;                          // the step may have ended everything
     net.tick++;
     net.acc = Math.max(0, net.acc - 1 / 60);
     steps++;
+    if (net.coop && net.tick % 300 === 0) {    // a positional digest each 5s
+      const h = coopChecksum();
+      net.ckLocal[net.tick] = h;
+      try { net.conn.send({ t: 'ck', k: net.tick, h }); } catch (e) {}
+      netCkCompare();
+      if (!net) return;                        // the digest may have severed the line
+    }
+    // an interact bit can open a scroll mid-step (shrine, game over) — both
+    // sims break here on the same tick and resume together when it closes
+    if (game.state !== 'playing') break;
   }
   if (!net) return;
   net.stall = net.remoteQ[net.tick] === undefined;
@@ -6676,11 +6929,19 @@ const overlays = {
   rebirth: document.getElementById('rebirthOverlay'),
 };
 function pauseGame() {
+  // online co-op: a pause is render-only, so mirroring it across the wire
+  // is safe — neither sim steps while either scroll hangs
+  if (netCoop() && net.started && game.state === 'playing') {
+    try { net.conn.send({ t: 'pause' }); } catch (e) {}
+  }
   game.state = 'paused';          // render-only: the whole fight freezes
   player.vHeld = false;           // don't let a held brush-cast fire on resume
   showOverlay('pause');
 }
 function resumeGame() {
+  if (netCoop() && net.started && game.state === 'paused') {
+    try { net.conn.send({ t: 'resume' }); } catch (e) {}
+  }
   game.state = 'playing';
   showOverlay('none');
 }
@@ -6771,7 +7032,7 @@ function spawnComp(comp, meleeCap) {
   for (const type of comp) {
     const spot = wallSpot();
     const e = new ENEMY_TYPES[type](spot.x, spot.y);
-    if (eliteOk && Math.random() < .1) makeElite(e);
+    if (eliteOk && srandom() < .1) makeElite(e);
     tuneEnemy(e, m);
     enemies.push(e);
   }
@@ -6832,8 +7093,8 @@ function genInfiniteComp(w) {
   ][arenaIdx];
   const count = Math.min(3 + Math.floor(w / 4), 9);
   const comp = [];
-  if (arenaIdx >= 3 && w >= 8 && Math.random() < .5) comp.push('brute');
-  while (comp.length < count) comp.push(pools[Math.floor(Math.random() * pools.length)]);
+  if (arenaIdx >= 3 && w >= 8 && srandom() < .5) comp.push('brute');
+  while (comp.length < count) comp.push(pools[Math.floor(srandom() * pools.length)]);
   return comp;
 }
 
@@ -6850,7 +7111,8 @@ const CURSES = [
 ];
 
 /* ---------- run flow ---------- */
-const menuSel = { mode: 'level', diff: 1, level: 1, chaos: false, map: 0, coop: false,
+const menuSel = { mode: 'level', diff: 1, level: 1, chaos: false, map: 0,
+                  coop: false, coopOnline: false,
                   p1Blade: 'tetsu', p2Blade: 'tetsu', curses: [],
                   p1Bow: 'shortbow', p2Bow: 'shortbow',
                   duelOpp: 'human', duelArena: 0,
@@ -6860,6 +7122,14 @@ function beginRun() {
   if (menuSel.mode === 'duel' && menuSel.duelOpp === 'online') {
     if (!net || !net.started)
       netStatus('host a room or join one — the duel starts when the line connects', true);
+    return;
+  }
+  if (menuSel.coopOnline && (menuSel.mode === 'infinite' || menuSel.mode === 'rush')) {
+    // the online storm starts itself on handshake, never from this button
+    if (!net || !net.started) {
+      netMsgEl = 'coopNetMsg';
+      netStatus('host a room or join one — the storm begins when the line connects', true);
+    }
     return;
   }
   startRun(menuSel.mode);
@@ -6898,10 +7168,11 @@ function startRun(mode) {
   shrine = null; game.kyudo = null; kyudoStand = null;
   shakeMag = 0; hitStop = 0;
   enemies = [];
-  // 二人 couch co-op — the second blade stands only in the endless storm
-  // and the boss rushes; every other door remains a solo trial. P2 is
+  // 二人 co-op — the second blade stands only in the endless storm and
+  // the boss rushes; every other door remains a solo trial. P2 is
   // duel-style raw: menu picks, no progression, and never a save write.
-  game.coop = !!menuSel.coop && (mode === 'infinite' || mode === 'rush');
+  // Couch arms via the menu; online arms via the live net session.
+  game.coop = (!!menuSel.coop || netCoop()) && (mode === 'infinite' || mode === 'rush');
   p2 = game.coop ? makeP2(menuSel.p2Blade, menuSel.p2Bow) : null;
   if (mode === 'level') {
     game.level = menuSel.level;
@@ -7003,8 +7274,9 @@ function startInfiniteWave(first) {
       setBanner(`${THEMES[arenaIdx].kanji} ${THEMES[arenaIdx].name} — wave ${w}`, 2);
     else setBanner(`— wave ${w} —`, 1.6);
   }
-  // the stall portal opens at the start of every arena rotation
-  if (save.merchantUnlocked && (w - 1) % 5 === 0)
+  // the stall portal opens at the start of every arena rotation —
+  // but not online: the shop's DOM clicks don't ride the tick pipeline
+  if (save.merchantUnlocked && (w - 1) % 5 === 0 && !netCoop())
     spawnPortal(ARENA.x + 56, ARENA.y + 56, 'merchant');
   // every fifth wave survived, a shrine stands in the far corner
   if (w > 1 && (w - 1) % 5 === 0)
@@ -7357,7 +7629,7 @@ function onWaveCleared() {
       if (game.map + 1 >= MAP_COUNT) award('trialAll');
     } else {
       // stage chest roll: 12% + 1% per stage into the map
-      if (Math.random() < .12 + game.cStage * .01) rollChest(p, 0);
+      if (srandom() < .12 + game.cStage * .01) rollChest(p, 0);
       spawnPortal(p.x, p.y, 'next');
       const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
       if (game.cStage % 4 === 0)
@@ -7490,6 +7762,8 @@ function returnToMenu() {
   shrine = null; game.kyudo = null; kyudoStand = null;
   enemies = []; projectiles = []; shockwaves = []; blackholes = [];
   p2 = null; game.coop = false;   // the second blade bows out at the door
+  restoreSave();   // an online-co-op guest gets their own ledger back
+  game.honor = save.honor;
   setTheme(0);
   resetPlayer();
   renderMenu();
@@ -8015,21 +8289,35 @@ function renderMenu() {
   document.getElementById('infEndless').classList.toggle('sel', menuSel.mode === 'infinite');
   document.getElementById('infGauntlet').classList.toggle('sel', menuSel.mode === 'rush' && !menuSel.chaos);
   document.getElementById('infChaos').classList.toggle('sel', menuSel.mode === 'rush' && menuSel.chaos);
-  // 二人 couch co-op — a second blade may join the storm and the rushes.
-  // P2 is duel-raw (any arm, no progression); the brush stays sealed out.
+  // 二人 co-op — a second blade may join the storm and the rushes, on
+  // the same couch or across the wire. P2 is duel-raw (any arm, no
+  // progression); the brush stays sealed out.
   document.getElementById('coopBox').style.display = groupInf ? 'block' : 'none';
   if (groupInf) {
     const cRow = document.getElementById('coopRow');
     cRow.innerHTML = '';
-    for (const [on, label] of [[false, '一人 ALONE'], [true, '二人 CO-OP']]) {
+    const company = menuSel.coopOnline ? 'online' : menuSel.coop ? 'couch' : 'alone';
+    const opts = [['alone', '一人 ALONE'], ['couch', '二人 COUCH CO-OP'],
+                  ['online', '網 ONLINE CO-OP']];
+    for (const [id, label] of opts) {
       const b = document.createElement('button');
-      b.className = 'curseBtn' + (!!menuSel.coop === on ? ' sel' : '');
+      b.className = 'curseBtn' + (company === id ? ' sel' : '');
       b.textContent = label;
-      b.onclick = () => { menuSel.coop = on; renderMenu(); };
+      b.onclick = () => {
+        menuSel.coop = id === 'couch';
+        menuSel.coopOnline = id === 'online';
+        renderMenu();
+      };
       cRow.appendChild(b);
     }
-    document.getElementById('coopSetup').style.display = menuSel.coop ? 'block' : 'none';
-    if (menuSel.coop) {
+    document.getElementById('coopOnlineBox').style.display =
+      menuSel.coopOnline ? 'block' : 'none';
+    const showPicks = menuSel.coop || menuSel.coopOnline;
+    document.getElementById('coopSetup').style.display = showPicks ? 'block' : 'none';
+    document.getElementById('coopBladeLabel').textContent = menuSel.coopOnline
+      ? '— your blade when JOINING a room · the host plays their own samurai —'
+      : '— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate —';
+    if (showPicks) {
       if (!WEAPONS[menuSel.p2Blade] || WEAPONS[menuSel.p2Blade].admin) menuSel.p2Blade = 'tetsu';
       if (!BOWS[menuSel.p2Bow]) menuSel.p2Bow = 'shortbow';
       const bRow = document.getElementById('coopBladeRow');
@@ -8292,6 +8580,12 @@ document.getElementById('infEndless').onclick = () => { menuSel.mode = 'infinite
 document.getElementById('infGauntlet').onclick = () => { menuSel.mode = 'rush'; menuSel.chaos = false; renderMenu(); };
 document.getElementById('infChaos').onclick = () => { menuSel.mode = 'rush'; menuSel.chaos = true; renderMenu(); };
 document.getElementById('btnTooEasy').onclick = () => { advOpen = !advOpen; renderMenu(); };
+document.getElementById('btnCoopHost').onclick = hostCoop;
+document.getElementById('btnCoopJoin').onclick = () =>
+  joinCoop(document.getElementById('coopJoinCode').value);
+document.getElementById('coopJoinCode').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') joinCoop(ev.target.value);
+});
 document.getElementById('btnHost').onclick = hostDuel;
 document.getElementById('btnJoin').onclick = () =>
   joinDuel(document.getElementById('joinCode').value);
@@ -8467,18 +8761,18 @@ function updateAudioAmbient(dt) {
   if (AE.evT > 0) return;
   const amb = AE.ambG;
   if (themeIndex === 0) {          // birdsong over the yard
-    AE.evT = rand(2.5, 7);
-    const f = rand(2200, 3200);
+    AE.evT = crand(2.5, 7);
+    const f = crand(2200, 3200);
     sfxTone('sine', f, f * 1.25, .09, .05, 0, amb);
     sfxTone('sine', f * 1.1, f * .9, .08, .04, .12, amb);
   } else if (themeIndex === 1) {   // bamboo rustle
-    AE.evT = rand(2, 5);
+    AE.evT = crand(2, 5);
     sfxNoise('bandpass', 1500, 900, .45, .045, .8, 0, amb);
   } else if (themeIndex === 3) {   // fire crackle
-    AE.evT = rand(.12, .45);
-    sfxNoise('lowpass', rand(900, 1600), 300, .05, .05, 1, 0, amb);
+    AE.evT = crand(.12, .45);
+    sfxNoise('lowpass', crand(900, 1600), 300, .05, .05, 1, 0, amb);
   } else {                         // distant thunder over bridge + shrine
-    AE.evT = rand(6, 14);
+    AE.evT = crand(6, 14);
     sfxNoise('lowpass', 160, 55, 1.5, .11, 1, 0, amb);
   }
 }
@@ -8879,7 +9173,7 @@ function drawEnemy(e) {
   }
   // broken stance — the figure reels, gold sparks drifting off
   if (e.brokenT > 0 && Math.random() < .3)
-    sparks(e.x + rand(-e.r, e.r), e.y - e.r, -Math.PI / 2, GOLD, 1, .5);
+    sparks(e.x + crand(-e.r, e.r), e.y - e.r, -Math.PI / 2, GOLD, 1, .5);
   // face notch — a bold ink tick showing facing
   ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.lineCap = 'round';
   ctx.beginPath();
@@ -9623,6 +9917,16 @@ function drawHUD() {
       ctx.fillStyle = RED; ctx.font = 'italic 12px Georgia,serif';
       ctx.fillText('倒 fallen — clear the wave', bx + 20 + pw + 10, py + ph / 2);
     }
+    // online: the connection dot keeps its duel colors — green, gold, red
+    if (net && net.coop && net.started) {
+      const ny = py2 + 22;
+      ctx.fillStyle = net.stall ? RED : net.rtt > 180 ? GOLD : '#5a7a4a';
+      ctx.beginPath(); ctx.arc(bx + 6, ny, 4, 0, TAU); ctx.fill();
+      ctx.fillStyle = INK; ctx.font = 'italic 11px Georgia,serif';
+      ctx.fillText(net.stall ? 'waiting for the wire…'
+                   : (net.host ? 'host' : 'guest') + ' · ' + Math.round(net.rtt) + 'ms',
+                   bx + 16, ny);
+    }
   }
   // 奥 ultimate meter — neon; drains as a duration bar while the surge runs.
   // Until the first rebirth the gate is closed: the meter still FILLS —
@@ -9960,7 +10264,7 @@ function draw() {
     ctx.translate(-W / 2, -H / 2);
   }
   if (shakeMag > 0)
-    ctx.translate(rand(-shakeMag, shakeMag), rand(-shakeMag, shakeMag));
+    ctx.translate(crand(-shakeMag, shakeMag), crand(-shakeMag, shakeMag));
   ctx.drawImage(bg, 0, 0, W, H);
   // death calligraphy — the lords this run has claimed
   for (const c of calligraphy) {
@@ -10261,7 +10565,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   const rawDt = Math.min((now - last) / 1000, 1 / 30);   // clamp tab-switch spikes
   last = now;
-  if (net && net.started && game.mode === 'duel' && game.state === 'playing') {
+  if (net && net.started && (game.mode === 'duel' || net.coop) &&
+      game.state === 'playing') {
     // online lockstep: fixed 60Hz ticks, gated on both sides' inputs
     if (hitStop > 0) hitStop -= rawDt;
     else netFrame(rawDt);

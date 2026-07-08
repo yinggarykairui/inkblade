@@ -301,17 +301,29 @@ addEventListener('keydown', e => {
   if (k.startsWith('Arrow') || k === ' ') e.preventDefault();
   keys[k] = true;
   if (k.length === 1) keys[k.toLowerCase()] = true;
-  if ((k === 'v' || k === 'V') && !e.repeat) {
+  // 網 online co-op: every action rides the tick pipeline, never the
+  // entity — a locally-applied press would land early on one sim only
+  const coopWire = net && net.started && net.coop && game.state === 'playing';
+  if (coopWire && !e.repeat) {
+    const wk = k.length === 1 ? k.toLowerCase() : k;
+    if (wk === 'v') net.pend.atk = true;
+    if (k === 'Shift') net.pend.roll = true;
+    if (wk === 'c') net.pend.parry = true;
+    if (wk === 'r' || k === ' ') net.pend.ult = true;
+    if (wk === 'q') net.pend.stance = true;
+    if (wk === 'e') net.pend.interact = true;
+  }
+  if ((k === 'v' || k === 'V') && !e.repeat && !coopWire) {
     // Fudemaru casts on release so the hold duration can pick the symbol
     if (game.equipped === 'fudemaru' && game.state === 'playing' && game.mode !== 'duel') {
       player.vHeld = true; player.vDownAt = game.time;
     } else player.attackBuf = 0.18;
   }
-  if (k === 'Shift') player.dodgeBuf = 0.18;
-  if ((k === 'c' || k === 'C') && !e.repeat) player.parryBuf = 0.18;
+  if (k === 'Shift' && !coopWire) player.dodgeBuf = 0.18;
+  if ((k === 'c' || k === 'C') && !e.repeat && !coopWire) player.parryBuf = 0.18;
   // couch co-op: the second blade answers the duel-style row —
   // U slash · I roll · O parry · P bow-stance · , meditate (held)
-  if (game.coop && p2 && game.state === 'playing' && game.mode !== 'duel' && !e.repeat) {
+  if (game.coop && !net && p2 && game.state === 'playing' && game.mode !== 'duel' && !e.repeat) {
     const ck = k.length === 1 ? k.toLowerCase() : k;
     if (ck === 'u') p2.attackBuf = 0.18;
     if (ck === 'i') p2.dodgeBuf = 0.18;
@@ -353,11 +365,12 @@ addEventListener('keydown', e => {
       if (lk === 'p') toggleFighterStance(p2t);
     }
   }
-  if ((k === 'e' || k === 'E') && !e.repeat) tryInteract();
-  if ((k === 'r' || k === 'R' || k === ' ') && !e.repeat) activateUlt();
-  if ((k === 'q' || k === 'Q') && !e.repeat) toggleStance();
-  if ((k === 'l' || k === 'L') && !e.repeat) toggleUlt();
-  if ((k === 'u' || k === 'U') && !e.repeat && !(game.coop && game.mode !== 'duel'))
+  if ((k === 'e' || k === 'E') && !e.repeat && !coopWire) tryInteract();
+  if ((k === 'r' || k === 'R' || k === ' ') && !e.repeat && !coopWire) activateUlt();
+  if ((k === 'q' || k === 'Q') && !e.repeat && !coopWire) toggleStance();
+  if ((k === 'l' || k === 'L') && !e.repeat && !coopWire) toggleUlt();
+  if ((k === 'u' || k === 'U') && !e.repeat && !coopWire &&
+      !(game.coop && game.mode !== 'duel'))
     toggleBrushSwap();   // in co-op, U belongs to the second blade
   if (k === 'Enter') {
     if (document.activeElement === document.getElementById('sealInput')) return;
@@ -366,7 +379,10 @@ addEventListener('keydown', e => {
   }
   if (k === 'Escape') {
     if (game.state === 'shop') closeShop();
-    else if (game.state === 'shrine') closeShrine();
+    else if (game.state === 'shrine') {
+      // online co-op: only the host may wave the shrine away
+      if (!(netCoop() && net.started && !net.host)) closeShrine();
+    }
     else if (game.state === 'records' || game.state === 'settings') closeMetaOverlay();
     else if (game.state === 'rebirth') closeRebirth();
     else if (game.state === 'playing') pauseGame();
@@ -394,8 +410,9 @@ addEventListener('blur', () => {
    never sees a cursor. Movement stays on WASD.                     */
 const mouse = { x: W / 2, y: H / 2, seen: false, down: false };
 function mouseAimOn() {
+  // never online: the other sim cannot see this cursor
   return save.mouseAim && mouse.seen && game.state === 'playing' &&
-    game.mode !== 'duel' && !touch.active;
+    game.mode !== 'duel' && !netCoop() && !touch.active;
 }
 function mouseWorld() {   // undo the boss-camera ease around center
   const z = game.zoom || 1;
@@ -468,6 +485,14 @@ function touchAction(id) {
     else if (id === 'stance') toggleFighterStance(duel.p1);
     return;
   }
+  if (net && net.started && net.coop) {   // online co-op: taps ride the wire
+    if (id === 'atk') net.pend.atk = true;
+    else if (id === 'roll') net.pend.roll = true;
+    else if (id === 'parry') net.pend.parry = true;
+    else if (id === 'ult') net.pend.ult = true;
+    else if (id === 'stance') net.pend.stance = true;
+    return;
+  }
   if (id === 'atk') {
     if (game.equipped === 'fudemaru') { player.vHeld = true; player.vDownAt = game.time; }
     else if (player.stance === 'sword') player.attackBuf = .18;
@@ -493,7 +518,8 @@ cv.addEventListener('touchstart', e => {
     if (!hit && nearInteractable() &&
         dist(p.x, p.y, W / 2, H - 74) < 42) {
       hit = true;
-      tryInteract();
+      if (net && net.started && net.coop) net.pend.interact = true;
+      else tryInteract();
     }
     if (!hit && p.x < W * .55 && touchUI.stickId === null) {
       touchUI.stickId = t.identifier;

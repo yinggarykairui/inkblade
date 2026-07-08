@@ -66,56 +66,78 @@ function defaultSave() {
   };
 }
 let save = defaultSave();
+// sanitize any parsed save-shaped object into `save` — shared by disk
+// loads and by the online co-op guest borrowing the host's ledger
+function applySaveData(d) {
+  save = Object.assign(defaultSave(), d);
+  save.upgrades = Object.assign({ hp: 0, spd: 0, dmg: 0, st: 0, rgn: 0 }, d.upgrades);
+  // new fields merge additively — old saves must load without loss
+  save.stats = Object.assign({}, DEFAULT_STATS, d.stats);
+  save.stats.bladeKills = Object.assign({}, d.stats && d.stats.bladeKills);
+  save.audio = Object.assign({ master: .8, sfx: 1, ambient: .7, muted: false }, d.audio);
+  save.mastery = Object.assign({}, d.mastery);
+  if (!Array.isArray(save.achievements)) save.achievements = [];
+  if (!Array.isArray(save.charmsOwned)) save.charmsOwned = [];
+  if (save.charm && !save.charmsOwned.includes(save.charm)) save.charm = null;
+  if (save.charm2 && (!save.charmsOwned.includes(save.charm2) ||
+      save.charm2 === save.charm)) save.charm2 = null;
+  save.recCycles = Object.assign({}, d.recCycles);
+  if (typeof save.shakeMul !== 'number') save.shakeMul = 1;
+  save.mouseAim = !!save.mouseAim;   // additive — old saves default off
+  save.kyudo = Object.assign({ rank: 0, best: 0 }, d.kyudo);
+  save.rebirth = Object.assign({ level: 0 }, d.rebirth);
+  if (!Array.isArray(save.owned) || !save.owned.includes('tetsu')) save.owned = ['tetsu'];
+  // bows arrived later — old saves get the starter quiver for free
+  if (!Array.isArray(save.bowsOwned) || !save.bowsOwned.includes('shortbow'))
+    save.bowsOwned = ['shortbow'].concat(
+      Array.isArray(save.bowsOwned) ? save.bowsOwned.filter(b => BOWS[b]) : []);
+  save.bowsOwned = save.bowsOwned.filter(b => BOWS[b]);
+  if (!BOWS[save.bowEquipped] || !save.bowsOwned.includes(save.bowEquipped))
+    save.bowEquipped = 'shortbow';
+  // progression overhaul fields — old saves gain them at zero
+  save.weaponXP = Object.assign({}, d.weaponXP);
+  save.tomb = Object.assign({ body: 0, stance: 0, edge: 0 }, d.tomb);
+  save.maps = Object.assign({ unlocked: 1, best: [0, 0, 0, 0, 0] }, d.maps);
+  if (!Array.isArray(save.maps.best) || save.maps.best.length !== 5)
+    save.maps.best = [0, 0, 0, 0, 0];
+  // a cleared old-campaign level vouches for the matching map
+  save.maps.unlocked = clamp(Math.max(save.maps.unlocked || 1,
+    Math.min(5, (save.maxLevelCleared || 0) + 1)), 1, 5);
+  save.chestsOpened = save.chestsOpened | 0;
+  save.adminUnlocked = !!save.adminUnlocked;
+  // the brush survives reloads only while the seal stands
+  const fudeOk = save.equipped === 'fudemaru' && save.adminUnlocked;
+  if (!WEAPONS[save.equipped] ||
+      (!fudeOk && (save.equipped === 'fudemaru' || !save.owned.includes(save.equipped))))
+    save.equipped = 'tetsu';
+}
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) {
-      const d = JSON.parse(raw);
-      save = Object.assign(save, d);
-      save.upgrades = Object.assign({ hp: 0, spd: 0, dmg: 0, st: 0, rgn: 0 }, d.upgrades);
-      // new fields merge additively — old saves must load without loss
-      save.stats = Object.assign({}, DEFAULT_STATS, d.stats);
-      save.stats.bladeKills = Object.assign({}, d.stats && d.stats.bladeKills);
-      save.audio = Object.assign({ master: .8, sfx: 1, ambient: .7, muted: false }, d.audio);
-      save.mastery = Object.assign({}, d.mastery);
-      if (!Array.isArray(save.achievements)) save.achievements = [];
-      if (!Array.isArray(save.charmsOwned)) save.charmsOwned = [];
-      if (save.charm && !save.charmsOwned.includes(save.charm)) save.charm = null;
-      if (save.charm2 && (!save.charmsOwned.includes(save.charm2) ||
-          save.charm2 === save.charm)) save.charm2 = null;
-      save.recCycles = Object.assign({}, d.recCycles);
-      if (typeof save.shakeMul !== 'number') save.shakeMul = 1;
-      save.mouseAim = !!save.mouseAim;   // additive — old saves default off
-      save.kyudo = Object.assign({ rank: 0, best: 0 }, d.kyudo);
-      save.rebirth = Object.assign({ level: 0 }, d.rebirth);
-      if (!Array.isArray(save.owned) || !save.owned.includes('tetsu')) save.owned = ['tetsu'];
-      // bows arrived later — old saves get the starter quiver for free
-      if (!Array.isArray(save.bowsOwned) || !save.bowsOwned.includes('shortbow'))
-        save.bowsOwned = ['shortbow'].concat(
-          Array.isArray(save.bowsOwned) ? save.bowsOwned.filter(b => BOWS[b]) : []);
-      save.bowsOwned = save.bowsOwned.filter(b => BOWS[b]);
-      if (!BOWS[save.bowEquipped] || !save.bowsOwned.includes(save.bowEquipped))
-        save.bowEquipped = 'shortbow';
-      // progression overhaul fields — old saves gain them at zero
-      save.weaponXP = Object.assign({}, d.weaponXP);
-      save.tomb = Object.assign({ body: 0, stance: 0, edge: 0 }, d.tomb);
-      save.maps = Object.assign({ unlocked: 1, best: [0, 0, 0, 0, 0] }, d.maps);
-      if (!Array.isArray(save.maps.best) || save.maps.best.length !== 5)
-        save.maps.best = [0, 0, 0, 0, 0];
-      // a cleared old-campaign level vouches for the matching map
-      save.maps.unlocked = clamp(Math.max(save.maps.unlocked || 1,
-        Math.min(5, (save.maxLevelCleared || 0) + 1)), 1, 5);
-      save.chestsOpened = save.chestsOpened | 0;
-      save.adminUnlocked = !!save.adminUnlocked;
-      // the brush survives reloads only while the seal stands
-      const fudeOk = save.equipped === 'fudemaru' && save.adminUnlocked;
-      if (!WEAPONS[save.equipped] ||
-          (!fudeOk && (save.equipped === 'fudemaru' || !save.owned.includes(save.equipped))))
-        save.equipped = 'tetsu';
-    }
+    if (raw) applySaveData(JSON.parse(raw));
   } catch (e) { /* corrupted or blocked storage — start fresh */ }
 }
+/* ---------- online co-op: the guest runs on the HOST's ledger ----------
+   Both lockstep sims must share P1's exact statline, so the guest
+   borrows the host's save for the run. Mid-run writes land on the
+   borrowed copy (both sims write identically — sim state), the disk is
+   never touched while borrowed, and the guest's own ledger returns at
+   the menu door.                                                       */
+let saveBackup = null;
+function saveBorrowed() { return saveBackup !== null; }
+function borrowSave(data) {
+  if (saveBackup) return;
+  saveBackup = save;
+  try { applySaveData(data || {}); }
+  catch (e) { save = defaultSave(); }
+}
+function restoreSave() {
+  if (!saveBackup) return;
+  save = saveBackup;
+  saveBackup = null;
+}
 function persistSave() {
+  if (saveBackup) return;   // a borrowed ledger is never written to disk
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {}
 }
 loadSave();

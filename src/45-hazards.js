@@ -25,17 +25,27 @@ function openShrine() {
   const pool = BLESSINGS.filter(b => !game.blessings.includes(b.id));
   const picks = [];
   while (picks.length < 3 && pool.length)
-    picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    picks.push(pool.splice(Math.floor(srandom() * pool.length), 1)[0]);
   for (const b of picks) {
     const btn = document.createElement('button');
     btn.className = 'blessCard';
     btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}<span class="bd">${b.desc}</span>`;
-    btn.onclick = () => pickBlessing(b.id);
+    // online co-op: the shrine answers the host's hand alone — the guest's
+    // sim applies the same pick when it crosses the wire
+    btn.onclick = () => { if (netCoop() && net.started && !net.host) return; pickBlessing(b.id); };
     row.appendChild(btn);
   }
   showOverlay('shrine');
+  if (netCoop() && net.started && !net.host && net.blessQ) {
+    const q = net.blessQ;              // the host chose before our sim arrived
+    net.blessQ = null;
+    if (q.close) closeShrine(); else pickBlessing(q.id);
+  }
 }
 function pickBlessing(id) {
+  if (netCoop() && net.started && net.host) {
+    try { net.conn.send({ t: 'bless', id }); } catch (e) {}
+  }
   game.blessings.push(id);
   award('blessed');
   // blessings are run-scoped and bless the whole party, P2 included
@@ -53,6 +63,9 @@ function pickBlessing(id) {
   showOverlay('none');
 }
 function closeShrine() {   // walk on — the shrine keeps waiting
+  if (netCoop() && net.started && net.host) {
+    try { net.conn.send({ t: 'blessClose' }); } catch (e) {}
+  }
   game.state = 'playing';
   showOverlay('none');
 }
@@ -68,7 +81,7 @@ function setupHazards(ti) {
     for (const fx of [.33, .66]) {
       const lx = ARENA.x + ARENA.w * fx;
       for (let y = ARENA.y + 40; y < ARENA.y + ARENA.h - 30; y += 58) {
-        if (Math.random() < .8)
+        if (srandom() < .8)
           stalks.push({ x: lx + rand(-8, 8), y: y + rand(-10, 10),
                         r: 9, hp: 2, dead: false, hitBy: 0 });
       }
@@ -121,24 +134,27 @@ function updateHazards(dt) {
   }
 }
 function updateAmbient(dt) {
+  // pure atmosphere — every die here is the COSMETIC one: these blocks
+  // fire behind local Math.random gates, and a gated pull on the sim
+  // stream would silently desync an online co-op lockstep
   const ti = themeIndex;
   if (ti === 0 && Math.random() < dt * 2.2) {          // drifting sakura
-    particles.push({ kind: 'petal', x: rand(ARENA.x, ARENA.x + ARENA.w), y: ARENA.y - 10,
-      vx: rand(8, 30), vy: rand(14, 30), t: 0, life: rand(1.6, 2.6),
-      tint: 'faint', owner: null, rad: rand(1.5, 2.6), spin: rand(0, TAU) });
+    particles.push({ kind: 'petal', x: crand(ARENA.x, ARENA.x + ARENA.w), y: ARENA.y - 10,
+      vx: crand(8, 30), vy: crand(14, 30), t: 0, life: crand(1.6, 2.6),
+      tint: 'faint', owner: null, rad: crand(1.5, 2.6), spin: crand(0, TAU) });
   }
   if (ti === 3 && fireZones.length && Math.random() < dt * 10) {   // rising embers
-    const f = fireZones[Math.floor(rand(0, fireZones.length))];
-    particles.push({ kind: 'dot', x: f.x + rand(-f.r, f.r), y: f.y + rand(-f.r * .6, f.r * .6),
-      vx: rand(-12, 12), vy: rand(-70, -30), t: 0, life: rand(.6, 1.3),
+    const f = fireZones[Math.floor(crand(0, fireZones.length))];
+    particles.push({ kind: 'dot', x: f.x + crand(-f.r, f.r), y: f.y + crand(-f.r * .6, f.r * .6),
+      vx: crand(-12, 12), vy: crand(-70, -30), t: 0, life: crand(.6, 1.3),
       color: Math.random() < .6 ? 'rgba(74,64,56,.6)' : 'rgba(50,44,38,.55)',
-      rad: rand(1.5, 3) });
+      rad: crand(1.5, 3) });
   }
   if (ti === 4 && Math.random() < dt * .22) {          // shrine lightning
     game.flashT = .3;
-    const fx = rand(ARENA.x, ARENA.x + ARENA.w);
+    const fx = crand(ARENA.x, ARENA.x + ARENA.w);
     // ambient lightning strikes in ink — the sky keeps no pigment either
-    boltFX(fx + rand(-60, 60), -10, fx, rand(ARENA.y, ARENA.y + 120),
+    boltFX(fx + crand(-60, 60), -10, fx, crand(ARENA.y, ARENA.y + 120),
            'rgba(96,88,82,.85)', 'rgba(240,238,232,.95)');
     playSfx('bolt');
   }
@@ -221,7 +237,7 @@ function updatePortal(dt) {
   portal.t += dt;
   // ambient inward pull — motes fall into the rift
   if (Math.random() < dt * 30) {
-    const a = rand(0, TAU), d = rand(45, 95);
+    const a = crand(0, TAU), d = crand(45, 95);
     particles.push({ kind: 'line',
       x: portal.x + Math.cos(a) * d, y: portal.y + Math.sin(a) * d,
       vx: -Math.cos(a) * 95, vy: -Math.sin(a) * 95,

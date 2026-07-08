@@ -130,18 +130,18 @@ function updateAudioAmbient(dt) {
   if (AE.evT > 0) return;
   const amb = AE.ambG;
   if (themeIndex === 0) {          // birdsong over the yard
-    AE.evT = rand(2.5, 7);
-    const f = rand(2200, 3200);
+    AE.evT = crand(2.5, 7);
+    const f = crand(2200, 3200);
     sfxTone('sine', f, f * 1.25, .09, .05, 0, amb);
     sfxTone('sine', f * 1.1, f * .9, .08, .04, .12, amb);
   } else if (themeIndex === 1) {   // bamboo rustle
-    AE.evT = rand(2, 5);
+    AE.evT = crand(2, 5);
     sfxNoise('bandpass', 1500, 900, .45, .045, .8, 0, amb);
   } else if (themeIndex === 3) {   // fire crackle
-    AE.evT = rand(.12, .45);
-    sfxNoise('lowpass', rand(900, 1600), 300, .05, .05, 1, 0, amb);
+    AE.evT = crand(.12, .45);
+    sfxNoise('lowpass', crand(900, 1600), 300, .05, .05, 1, 0, amb);
   } else {                         // distant thunder over bridge + shrine
-    AE.evT = rand(6, 14);
+    AE.evT = crand(6, 14);
     sfxNoise('lowpass', 160, 55, 1.5, .11, 1, 0, amb);
   }
 }

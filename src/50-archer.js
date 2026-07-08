@@ -267,9 +267,9 @@ function updateBurnZones(dt) {
     b.t += dt; b.tick -= dt;
     if (Math.random() < dt * 14)   // rising smoke — gray ink in base, the
       // owner's pigment under a surge; the tint resolves fresh at draw time
-      particles.push({ kind: 'dot', x: b.x + rand(-b.r, b.r) * .8, y: b.y + rand(-b.r, b.r) * .6,
-        vx: rand(-10, 10), vy: rand(-60, -25), t: 0, life: rand(.4, .9),
-        tint: Math.random() < .6 ? 'wash' : 'faint', owner: b.owner, rad: rand(1.5, 2.6) });
+      particles.push({ kind: 'dot', x: b.x + crand(-b.r, b.r) * .8, y: b.y + crand(-b.r, b.r) * .6,
+        vx: crand(-10, 10), vy: crand(-60, -25), t: 0, life: crand(.4, .9),
+        tint: Math.random() < .6 ? 'wash' : 'faint', owner: b.owner, rad: crand(1.5, 2.6) });
     if (b.tick <= 0) {
       b.tick = .4;
       if (b.pvp) {

@@ -349,7 +349,7 @@ function drawEnemy(e) {
   }
   // broken stance — the figure reels, gold sparks drifting off
   if (e.brokenT > 0 && Math.random() < .3)
-    sparks(e.x + rand(-e.r, e.r), e.y - e.r, -Math.PI / 2, GOLD, 1, .5);
+    sparks(e.x + crand(-e.r, e.r), e.y - e.r, -Math.PI / 2, GOLD, 1, .5);
   // face notch — a bold ink tick showing facing
   ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.lineCap = 'round';
   ctx.beginPath();
@@ -1093,6 +1093,16 @@ function drawHUD() {
       ctx.fillStyle = RED; ctx.font = 'italic 12px Georgia,serif';
       ctx.fillText('倒 fallen — clear the wave', bx + 20 + pw + 10, py + ph / 2);
     }
+    // online: the connection dot keeps its duel colors — green, gold, red
+    if (net && net.coop && net.started) {
+      const ny = py2 + 22;
+      ctx.fillStyle = net.stall ? RED : net.rtt > 180 ? GOLD : '#5a7a4a';
+      ctx.beginPath(); ctx.arc(bx + 6, ny, 4, 0, TAU); ctx.fill();
+      ctx.fillStyle = INK; ctx.font = 'italic 11px Georgia,serif';
+      ctx.fillText(net.stall ? 'waiting for the wire…'
+                   : (net.host ? 'host' : 'guest') + ' · ' + Math.round(net.rtt) + 'ms',
+                   bx + 16, ny);
+    }
   }
   // 奥 ultimate meter — neon; drains as a duration bar while the surge runs.
   // Until the first rebirth the gate is closed: the meter still FILLS —
@@ -1430,7 +1440,7 @@ function draw() {
     ctx.translate(-W / 2, -H / 2);
   }
   if (shakeMag > 0)
-    ctx.translate(rand(-shakeMag, shakeMag), rand(-shakeMag, shakeMag));
+    ctx.translate(crand(-shakeMag, shakeMag), crand(-shakeMag, shakeMag));
   ctx.drawImage(bg, 0, 0, W, H);
   // death calligraphy — the lords this run has claimed
   for (const c of calligraphy) {

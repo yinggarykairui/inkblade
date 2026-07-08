@@ -324,7 +324,7 @@ const ULT_STEP = {
       ultTrail.push({ x: e.x, y: e.y, t: game.time });
       slashTrail(e.x, e.y, 60, e.face - .7, e.face + .7, nz[0], 5);
       for (let i = 0; i < 5; i++)
-        particles.push({ kind: 'line', x: t.x + rand(-16, 16), y: t.y - rand(10, 40),
+        particles.push({ kind: 'line', x: t.x + crand(-16, 16), y: t.y - crand(10, 40),
           vx: 0, vy: 210, t: 0, life: .25, color: 'rgba(56,189,248,.8)', w: 1.4 });
       A.hit(t, A.dmg(2), e.face, { posture: 13 });
       freeze(.05); shake(4);
@@ -354,8 +354,8 @@ const ULT_STEP = {
       clampArena(e);
       ultTrail.push({ x: e.x, y: e.y - 18, t: game.time });
       if (Math.random() < dt * 30)   // shed quills — cosmetic dice only
-        particles.push({ kind: 'petal', x: e.x, y: e.y - 16, vx: rand(-20, 20), vy: rand(10, 40),
-          t: 0, life: .6, color: '#fcfaf4', rad: 2, spin: rand(0, TAU) });
+        particles.push({ kind: 'petal', x: e.x, y: e.y - 16, vx: crand(-20, 20), vy: crand(10, 40),
+          t: 0, life: .6, color: '#fcfaf4', rad: 2, spin: crand(0, TAU) });
       if (s.t2 >= .35) { s.stage = 2; s.t2 = 0; }
     } else {
       if (!s.dove) {
@@ -472,9 +472,9 @@ const ULT_STEP = {
     clampArena(e);
     ultTrail.push({ x: e.x + dash.dx * 22, y: e.y + dash.dy * 22, t: game.time });
     if (Math.random() < dt * 60)   // ink rains off the bristles — cosmetic
-      particles.push({ kind: 'dot', x: e.x + rand(-14, 14), y: e.y + rand(-14, 14),
-        vx: rand(-30, 30), vy: rand(20, 80), t: 0, life: rand(.3, .6),
-        color: 'rgba(43,35,32,.65)', rad: rand(1.5, 3.5) });
+      particles.push({ kind: 'dot', x: e.x + crand(-14, 14), y: e.y + crand(-14, 14),
+        vx: crand(-30, 30), vy: crand(20, 80), t: 0, life: crand(.3, .6),
+        color: 'rgba(43,35,32,.65)', rad: crand(1.5, 3.5) });
     // five slashes spaced evenly across the lunge — the original timing, kept
     while (dash.done < dash.hits &&
            dash.t >= dash.dur * (dash.done + 1) / (dash.hits + 1)) {
@@ -551,8 +551,8 @@ function updateUltWaves(dt) {
       }
     }
     if (Math.random() < dt * 30)   // crackle — cosmetic
-      particles.push({ kind: 'line', x: w.x + rand(-w.r, w.r), y: w.y + rand(-w.r, w.r),
-        vx: rand(-80, 80), vy: rand(-80, 80), t: 0, life: .12, color: '#9fc2ff', w: 1.4 });
+      particles.push({ kind: 'line', x: w.x + crand(-w.r, w.r), y: w.y + crand(-w.r, w.r),
+        vx: crand(-80, 80), vy: crand(-80, 80), t: 0, life: .12, color: '#9fc2ff', w: 1.4 });
   }
   ultWaves = ultWaves.filter(w => !w.dead);
 }
