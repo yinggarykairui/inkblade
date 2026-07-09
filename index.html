@@ -3081,6 +3081,9 @@ class Enemy {
     this.hitBy = 0;
     this.orbitDir = srandom() < .5 ? 1 : -1;
     this.orbitFlipT = rand(1.2, 2.8);
+    // a stable seed for the ragged ink silhouette — sim stream, so both
+    // lockstep sims brush the same body (render reads it, never rolls)
+    this.inkSeed = Math.floor(srandom() * 1e9);
     this.honorKill = 40;
     this.weapon = 'club';
     // posture: fills as hits land, drains when left alone; full = broken stance
@@ -3167,6 +3170,13 @@ class Enemy {
         if (this.dmgPreSurge) this.dmg = this.dmgPreSurge;
       }
     }
+    // lords SMOLDER — ink-smoke wisps rise off the body (cosmetic die only)
+    if (this.isBoss && Math.random() < dt * 2)
+      particles.push({ kind: 'dot',
+        x: this.x + crand(-this.r * .7, this.r * .7), y: this.y - this.r * .6,
+        vx: crand(-6, 6), vy: crand(-34, -18),
+        t: 0, life: crand(.7, 1.3), color: 'rgba(43,35,32,.35)',
+        rad: crand(1.5, 3) });
     // elite damage aura — a seared ring every blade must respect
     if (this.affix === 'aura' && !this.dead) {
       this.auraTick = Math.max(0, (this.auraTick || 0) - dt);
@@ -10058,11 +10068,25 @@ function drawWeapon(e) {
     ctx.moveTo(Math.cos(ang) * e.r * .6, Math.sin(ang) * e.r * .6);
     ctx.lineTo(Math.cos(ang) * (e.r + 18), Math.sin(ang) * (e.r + 18));
     ctx.stroke();
+    // a cruel knot near the head — a club, not a walking stick
+    ctx.lineWidth = 2.2;
+    const kd = e.r + 12;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ang) * kd - Math.sin(ang) * 4, Math.sin(ang) * kd + Math.cos(ang) * 4);
+    ctx.lineTo(Math.cos(ang) * kd + Math.sin(ang) * 4, Math.sin(ang) * kd - Math.cos(ang) * 4);
+    ctx.stroke();
   } else if (e.weapon === 'rapier') {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(Math.cos(ang) * e.r * .6, Math.sin(ang) * e.r * .6);
     ctx.lineTo(Math.cos(ang) * (e.r + 30), Math.sin(ang) * (e.r + 30));
+    ctx.stroke();
+    // the guard — a small cross at the hilt
+    ctx.lineWidth = 2.4;
+    const gd = e.r * .78;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ang) * gd - Math.sin(ang) * 4.5, Math.sin(ang) * gd + Math.cos(ang) * 4.5);
+    ctx.lineTo(Math.cos(ang) * gd + Math.sin(ang) * 4.5, Math.sin(ang) * gd - Math.cos(ang) * 4.5);
     ctx.stroke();
   } else if (e.weapon === 'slab') {
     ctx.lineWidth = 9;
@@ -10111,6 +10135,127 @@ function drawWeapon(e) {
   }
   ctx.restore();
 }
+/* ---------- ink-menace bodies (2026-07-09) ----------
+   Mobs are no longer clean circles: each is a RAGGED brush blob (stable
+   per foe via inkSeed, breathing slightly), wearing a mempo mask whose
+   eye slits flare the danger color only while a blow is promised.
+   Menace RAMPS with tier — grunts subtle, lords dreadful — so dread is
+   also information. Pure render; hitboxes stay e.r circles.           */
+function inkBlobPath(x, y, r, seed, rough) {
+  const rng = mulberry32((seed || 1) >>> 0);
+  const n = 12, j = [];
+  for (let i = 0; i < n; i++) j.push(rng());
+  for (let i = 0; i <= n; i++) {
+    const k = i % n, a = (k / n) * TAU;
+    const wob = 1 + (j[k] - .5) * .22 * rough
+              + Math.sin(game.time * 1.5 + k * 2.1) * .02;
+    const px = x + Math.cos(a) * r * wob;
+    const py = y + Math.sin(a) * r * wob;
+    if (i === 0) { ctx.beginPath(); ctx.moveTo(px, py); }
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+function inkRoughOf(e) {
+  if (e.isBoss) return 1.2;
+  if (e.elite || e.mirrorAll || e.chainMax || e.weapon === 'slab') return 1;
+  if (e.weapon === 'rapier' || e.weapon === 'knife' || e.weapon === 'spear') return .7;
+  return .5;
+}
+// per-type silhouette features — evocative ink strokes, tier-scaled
+function drawMenace(e, drawR) {
+  const s = e.isBoss ? Math.max(1, e.r / 14) : 1;
+  const back = e.face + Math.PI;
+  ctx.lineCap = 'round';
+  // 鬼 horns: every elite, and the slab-bearers by birthright
+  if (e.elite || e.weapon === 'slab') {
+    ctx.strokeStyle = 'rgba(24,19,16,.95)';
+    ctx.lineWidth = (e.weapon === 'slab' ? 3.5 : 2.6) * s;
+    for (const hs of [-1, 1]) {
+      const ha = e.face + hs * 1.05;
+      const bx = e.x + Math.cos(ha) * drawR * .85;
+      const by = e.y + Math.sin(ha) * drawR * .85;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.quadraticCurveTo(
+        bx + Math.cos(ha + hs * .35) * 9 * s, by + Math.sin(ha + hs * .35) * 9 * s,
+        bx + Math.cos(ha - hs * .2) * 14 * s, by + Math.sin(ha - hs * .2) * 14 * s);
+      ctx.stroke();
+    }
+  }
+  ctx.strokeStyle = INK;
+  if (e.weapon === 'slab') {
+    // the brute LOOMS: shoulder mass swelling past the body
+    ctx.lineWidth = 5 * s;
+    for (const hs of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, drawR * 1.06, back + hs * .25, back + hs * .95, hs < 0);
+      ctx.stroke();
+    }
+  } else if (e.weapon === 'club') {
+    // a rough topknot
+    ctx.lineWidth = 2.4 * s;
+    ctx.beginPath();
+    ctx.moveTo(e.x + Math.cos(back) * drawR * .8, e.y + Math.sin(back) * drawR * .8);
+    ctx.lineTo(e.x + Math.cos(back + .25) * (drawR + 7 * s),
+               e.y + Math.sin(back + .25) * (drawR + 7 * s));
+    ctx.stroke();
+  } else if (e.weapon === 'rapier') {
+    // duelist: a swept crest feather; the duelmaster wears it CROSSED,
+    // and the pair flicks wide while the flurry chain is live
+    const crossed = !!e.chainMax;
+    const flick = crossed && e.chain > 0 ? .3 : 0;
+    ctx.lineWidth = 2 * s;
+    for (const cs of crossed ? [-1, 1] : [1]) {
+      const ca = back + cs * (.35 + flick);
+      ctx.beginPath();
+      ctx.moveTo(e.x + Math.cos(ca) * drawR * .7, e.y + Math.sin(ca) * drawR * .7);
+      ctx.quadraticCurveTo(
+        e.x + Math.cos(ca + cs * .3) * (drawR + 8 * s), e.y + Math.sin(ca + cs * .3) * (drawR + 8 * s),
+        e.x + Math.cos(ca + cs * .15) * (drawR + 14 * s), e.y + Math.sin(ca + cs * .15) * (drawR + 14 * s));
+      ctx.stroke();
+    }
+  } else if (e.weapon === 'bow') {
+    // 笠 the archer's straw hat — a pale crescent over the crown
+    ctx.strokeStyle = 'rgba(245,234,210,.7)';
+    ctx.lineWidth = 3.5 * s;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, drawR * .92, back - 1.1, back + 1.1);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(24,19,16,.6)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, drawR * 1.04, back - .95, back + .95);
+    ctx.stroke();
+  } else if (e.weapon === 'knife') {
+    // shinobi: tatters streaming off the back — always half-vanishing
+    ctx.strokeStyle = 'rgba(43,35,32,.55)';
+    ctx.lineWidth = 1.6;
+    for (const ts of [-.35, .2, .55]) {
+      const ta = back + ts;
+      const flut = Math.sin(game.time * 6 + ts * 9) * 3;
+      ctx.beginPath();
+      ctx.moveTo(e.x + Math.cos(ta) * drawR * .8, e.y + Math.sin(ta) * drawR * .8);
+      ctx.lineTo(e.x + Math.cos(ta) * (drawR + 11) - Math.sin(ta) * flut,
+                 e.y + Math.sin(ta) * (drawR + 11) + Math.cos(ta) * flut);
+      ctx.stroke();
+    }
+  } else if (e.shielded) {
+    // 陣笠 the ashigaru's flat war hat
+    ctx.lineWidth = 3 * s;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, drawR * 1.02, back - .8, back + .8);
+    ctx.stroke();
+  }
+  if (e.mirrorAll) {
+    // the mirror's sheen — a cold highlight that dies when the stance cracks
+    ctx.strokeStyle = e.brokenT > 0 ? 'rgba(245,234,210,.15)' : 'rgba(245,234,210,.75)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(e.x - drawR * .25, e.y - drawR * .25, drawR * .55, -2.4, -1.1);
+    ctx.stroke();
+  }
+}
 function drawEnemy(e) {
   const spawnP = e.state === 'spawn' ? clamp(e.stateT / .7, 0, 1) : 1;
   ctx.save();
@@ -10136,14 +10281,21 @@ function drawEnemy(e) {
     ctx.setLineDash([]);
   }
   // body — the value ramp: lords are inked darkest with the heaviest
-  // outline, elites sink toward that end; hue never marks a foe
+  // outline, elites sink toward that end; hue never marks a foe.
+  // The body is a RAGGED brush blob now, and it INHALES on a windup —
+  // a draw-only swell (hitbox untouched) that doubles the telegraph.
+  const winding = e.state === 'windup' || e.state === 'aim';
+  const drawR = e.r * (winding ? 1.04 : 1);
   ctx.fillStyle = e.flashT > 0 ? REDHOT
     : e.isBoss ? '#332b25'
     : e.elite ? '#4a423a'
     : e.color;
   ctx.strokeStyle = e.isBoss ? '#181310' : INK;
   ctx.lineWidth = e.isBoss ? 5 : e.r > 18 ? 4 : 3;
-  ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.lineJoin = 'round';
+  inkBlobPath(e.x, e.y, drawR, e.inkSeed, inkRoughOf(e));
+  ctx.fill(); ctx.stroke();
+  ctx.lineJoin = 'miter';
   // elite mark: the heaviest ink ring in the yard, doubled — pure value.
   // (their reward still reads gold: the honor orbs they shatter into.)
   if (e.elite) {
@@ -10155,12 +10307,37 @@ function drawEnemy(e) {
   // broken stance — the figure reels, gold sparks drifting off
   if (e.brokenT > 0 && Math.random() < .3)
     sparks(e.x + crand(-e.r, e.r), e.y - e.r, -Math.PI / 2, GOLD, 1, .5);
-  // face notch — a bold ink tick showing facing
-  ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(e.x + Math.cos(e.face) * e.r * .45, e.y + Math.sin(e.face) * e.r * .45);
-  ctx.lineTo(e.x + Math.cos(e.face) * (e.r - 2), e.y + Math.sin(e.face) * (e.r - 2));
-  ctx.stroke();
+  // 面 the mempo mask — a dark band across the face hemisphere with two
+  // eye slits: pale at rest, flaring the DANGER color while a blow is
+  // promised (teleRGBA — colorblind palette holds for free), violet under
+  // an ascendant surge. Ghosts and straw keep their plain old faces.
+  if (!e.ghost && e.weapon !== 'none') {
+    const maskHalf = e.weapon === 'knife' ? 1.35 : .95;   // shinobi hide more
+    ctx.strokeStyle = 'rgba(24,19,16,.85)';
+    ctx.lineWidth = e.isBoss ? 5.5 : e.r > 18 ? 4.5 : 3.5;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, drawR * .62, e.face - maskHalf, e.face + maskHalf);
+    ctx.stroke();
+    ctx.strokeStyle = e.surgeT > 0 ? '#7c5cff'
+      : winding ? teleRGBA(.95) : 'rgba(245,234,210,.85)';
+    ctx.lineWidth = winding ? 2.6 : 2;
+    ctx.lineCap = 'round';
+    for (const s of [-.42, .42]) {
+      const ea = e.face + s;
+      ctx.beginPath();
+      ctx.moveTo(e.x + Math.cos(ea) * drawR * .48, e.y + Math.sin(ea) * drawR * .48);
+      ctx.lineTo(e.x + Math.cos(ea) * drawR * .72, e.y + Math.sin(ea) * drawR * .72);
+      ctx.stroke();
+    }
+    drawMenace(e, drawR);
+  } else {
+    // the old honest notch, for fixtures and flickers
+    ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(e.x + Math.cos(e.face) * e.r * .45, e.y + Math.sin(e.face) * e.r * .45);
+    ctx.lineTo(e.x + Math.cos(e.face) * (e.r - 2), e.y + Math.sin(e.face) * (e.r - 2));
+    ctx.stroke();
+  }
   // ashigaru shield — a raised wall until the stance breaks
   if (e.shielded) {
     const down = e.brokenT > 0;

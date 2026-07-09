@@ -27,6 +27,9 @@ class Enemy {
     this.hitBy = 0;
     this.orbitDir = srandom() < .5 ? 1 : -1;
     this.orbitFlipT = rand(1.2, 2.8);
+    // a stable seed for the ragged ink silhouette — sim stream, so both
+    // lockstep sims brush the same body (render reads it, never rolls)
+    this.inkSeed = Math.floor(srandom() * 1e9);
     this.honorKill = 40;
     this.weapon = 'club';
     // posture: fills as hits land, drains when left alone; full = broken stance
@@ -113,6 +116,13 @@ class Enemy {
         if (this.dmgPreSurge) this.dmg = this.dmgPreSurge;
       }
     }
+    // lords SMOLDER — ink-smoke wisps rise off the body (cosmetic die only)
+    if (this.isBoss && Math.random() < dt * 2)
+      particles.push({ kind: 'dot',
+        x: this.x + crand(-this.r * .7, this.r * .7), y: this.y - this.r * .6,
+        vx: crand(-6, 6), vy: crand(-34, -18),
+        t: 0, life: crand(.7, 1.3), color: 'rgba(43,35,32,.35)',
+        rad: crand(1.5, 3) });
     // elite damage aura — a seared ring every blade must respect
     if (this.affix === 'aura' && !this.dead) {
       this.auraTick = Math.max(0, (this.auraTick || 0) - dt);

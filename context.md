@@ -746,3 +746,22 @@ elite affixes**: 'surgetouched' (gets the 奥 ascendant surge) and
 'mirrortouched' (blocks all damage while posturing — its own attack/
 recovery are the punish windows; resolved in Enemy.hurt). Harness: 74
 assertions.
+
+## 2026-07-09h — INK-MENACE MOB REDESIGN (tiered)
+
+Mobs are no longer clean circles (90-render `inkBlobPath`/`inkRoughOf`/
+`drawMenace` + reworked body/mask in drawEnemy): each foe is a RAGGED
+brush blob (stable per foe via `e.inkSeed`, a new sim-stream draw in the
+Enemy constructor — lockstep-safe like orbitDir), breathing ±2%, with a
+draw-only ×1.04 INHALE on windup/aim. All wear a 面 mempo mask band with
+two eye slits: pale cream at rest, flaring teleRGBA while a blow is
+promised (danger color stays law, colorblind-safe), violet under a
+surge. Menace RAMPS with tier via roughness (.5 grunt/archer → 1.2 boss)
+and features: grunt topknot · duelist crest (duelmaster wears it crossed,
+flicking mid-flurry) · brute oni horns + shoulder mass · archer straw
+kasa · shinobi wider half-mask + fluttering back tatters · ashigaru
+jingasa · mirror guard cream sheen that dies on a break · ELITES get
+horns regardless of type · bosses scale everything by r/14 and SMOLDER
+(ink-smoke wisps from Enemy.update, cosmetic die). Club gained a knot,
+rapier a hilt guard. Ghosts/dummies keep the plain notch. Hitboxes,
+telegraphs, balance: untouched. Harness: 74 green.
