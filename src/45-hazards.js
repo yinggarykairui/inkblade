@@ -19,7 +19,8 @@ function spawnShrine(x, y) {
   // fused to a curse — a heavier burden, chosen mid-run with open eyes,
   // and richer honor from the next wave on (waveMults reads curses live).
   game.shrineN = (game.shrineN || 0) + 1;
-  const pool = BLESSINGS.filter(b => !game.blessings.includes(b.id));
+  // blessings deepen: a taken blessing returns to the pool until tier III
+  const pool = BLESSINGS.filter(b => blessCount(b.id) < 3);
   const cursePool = game.shrineN % 3 === 0
     ? CURSES.filter(c => !game.curses.includes(c.id)) : [];
   const picks = [];
@@ -43,7 +44,10 @@ function openShrine() {
     const b = p.bless;
     const btn = document.createElement('button');
     btn.className = 'blessCard';
-    btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}<span class="bd">${b.desc}</span>` +
+    const tier = blessCount(b.id);   // 0 = fresh; 1–2 = a deepening
+    const tierTag = tier > 0
+      ? ` <span style="color:var(--gold)">— deepens to ${tier >= 2 ? 'III' : 'II'}</span>` : '';
+    btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}${tierTag}<span class="bd">${b.desc}</span>` +
       (p.curse ? `<span class="bd" style="color:var(--red)">呪 fused to ${p.curse.name} — ${p.curse.desc}</span>` : '');
     // online co-op: the shrine answers the host's hand alone — the guest's
     // sim applies the same pick when it crosses the wire
@@ -66,6 +70,8 @@ function pickBlessing(id) {
   // blessings are run-scoped and bless the whole party, P2 included
   if (id === 'iron') for (const P of allPlayers()) { P.maxHp += 30; P.hp += 30; }
   const b = BLESSINGS.find(x => x.id === id);
+  const tier = blessCount(id);   // counted AFTER the push: 1 = fresh, 2–3 = deepened
+  const tierName = tier >= 3 ? ' III' : tier === 2 ? ' II' : '';
   // a bargain card carries its curse — both sims resolve it from their own
   // (identical, seed-rolled) picks, so the wire never needs to name it
   const pick = shrine && shrine.picks && shrine.picks.find(p => p.bless.id === id);
@@ -76,8 +82,8 @@ function pickBlessing(id) {
       P.maxHp = Math.max(10, Math.round(P.maxHp * .5));
       P.hp = Math.min(P.hp, P.maxHp);
     }
-    setBanner(`祈 ${b.name} · 呪 ${c.name} — the bargain is struck`, 2.6);
-  } else setBanner('祈 ' + b.name, 2);
+    setBanner(`祈 ${b.name}${tierName} · 呪 ${c.name} — the bargain is struck`, 2.6);
+  } else setBanner(`祈 ${b.name}${tierName}${tier > 1 ? ' — the blessing deepens' : ''}`, 2);
   if (shrine) {
     puff(shrine.x, shrine.y, 'rgba(168,132,58,.6)', 14);
     particles.push({ kind: 'ring', x: shrine.x, y: shrine.y, t: 0, life: .6,
@@ -216,9 +222,12 @@ function reelCenterAt(t) {
   const p = clamp(t / REEL.spin, 0, 1);
   return (REEL.land - 12.4) + 12.4 * (1 - Math.pow(1 - p, 3));
 }
-/* keep the wayside fixtures from stacking: nudge a spawn point until it
-   stands clear of the portal, the stall, the shrine and every unopened
-   chest — sim-stream dice only, so both lockstep sims nudge alike */
+/* keep the wayside fixtures from stacking: find a stand clear of the
+   portal, the stall, the shrine and every unopened chest. A direct
+   push-apart FAILS on narrow arenas (the bridge is a 230px band — the
+   vertical push and the clamp fight to a stalemate), so after one push
+   we walk a deterministic ring of candidates outward along BOTH axes
+   and take the first clear one. No dice at all — lockstep-safe.       */
 function clearSpot(x, y) {
   const MIN = 115;
   const others = [];
@@ -226,22 +235,32 @@ function clearSpot(x, y) {
   if (merchant) others.push([merchant.x, merchant.y]);
   if (shrine) others.push([shrine.x, shrine.y]);
   for (const c of chests) if (!c.opened) others.push([c.x, c.y]);
-  for (let tries = 0; tries < 12; tries++) {
-    let moved = false;
-    for (const [ox, oy] of others) {
-      const d = dist(x, y, ox, oy);
-      if (d < MIN) {
-        const a = d < 1 ? rand(0, TAU) : Math.atan2(y - oy, x - ox);
-        x = ox + Math.cos(a) * MIN;
-        y = oy + Math.sin(a) * MIN;
-        moved = true;
-      }
-    }
-    x = clamp(x, ARENA.x + 60, ARENA.x + ARENA.w - 60);
-    y = clamp(y, ARENA.y + 70, ARENA.y + ARENA.h - 70);
-    if (!moved) break;
+  const cx = v => clamp(v, ARENA.x + 60, ARENA.x + ARENA.w - 60);
+  const cy = v => clamp(v, ARENA.y + 70, ARENA.y + ARENA.h - 70);
+  const ok = (px, py) => others.every(([ox, oy]) => dist(px, py, ox, oy) >= MIN);
+  x = cx(x); y = cy(y);
+  if (ok(x, y)) return { x, y };
+  // one direct push off the nearest offender (works in open arenas)
+  let nx = null, nd = Infinity;
+  for (const o of others) {
+    const d = dist(x, y, o[0], o[1]);
+    if (d < nd) { nd = d; nx = o; }
   }
-  return { x, y };
+  if (nx && nd > 1) {
+    const a = Math.atan2(y - nx[1], x - nx[0]);
+    const px = cx(nx[0] + Math.cos(a) * MIN), py = cy(nx[1] + Math.sin(a) * MIN);
+    if (ok(px, py)) return { x: px, y: py };
+  }
+  // the ring walk: outward candidates on both axes and the diagonals
+  for (let ring = 1; ring <= 8; ring++) {
+    const r = ring * MIN * .8;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1],
+                            [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      const px = cx(x + dx * r), py = cy(y + dy * r);
+      if (ok(px, py)) return { x: px, y: py };
+    }
+  }
+  return { x, y };   // crowded beyond saving — nearest-first E still digs it out
 }
 function rollChest(p, bias) {
   const s = clearSpot(
@@ -265,9 +284,11 @@ function openChest(c) {
            : r < table.legendary + table.pure ? 'pure' : 'worn';
   // a merchant key vouches for at least a Pure pull — and is spent only
   // when it actually has to vouch; a natural Pure+ roll leaves it on the belt
+  let keyed = false;
   if (save.chestKey && tier === 'worn') {
     tier = 'pure';
     save.chestKey = false;
+    keyed = true;
   }
   const pool = CHEST_POOL[tier];
   const id = pool[Math.floor(rng() * pool.length) % pool.length];
@@ -281,6 +302,11 @@ function openChest(c) {
     x: c.x, y: c.y - 20, vx: 0, vy: -24, t: 0, life: .9, size: 40, misted: false });
   particles.push({ kind: 'ring', x: c.x, y: c.y, t: 0, life: .5,
     color: 'rgba(168,132,58,.6)', r0: 10, r1: 120, w: 3 });
+  // 昇 the ascension stone — the road of rebirth's toll, found ONLY here.
+  // A third draw on the same seeded stream (the first two picked the arm,
+  // so old saves' pending pulls are untouched); richer tables gleam more.
+  const stone = rng() < .04 + .04 * Math.min(2, base + c.bias);
+  if (stone) save.ascStones = (save.ascStones || 0) + 1;
   const isNew = !ownedList.includes(id);
   let bannerText, landSfx;
   if (isNew) {
@@ -296,13 +322,19 @@ function openChest(c) {
     bannerText = `${item.kanji} ${item.name} again — the duplicate melts into temper`;
     landSfx = 'buy';
   }
+  if (stone) {
+    bannerText += ' · 昇 AN ASCENSION STONE GLEAMS BENEATH';
+    landSfx = 'achieve';
+  }
   // the reveal reel: filler tiles from the whole arsenal (cosmetic die —
   // each client may see different filler; only the landing tile is law)
   const ids = WEAPON_ORDER.concat(BOW_ORDER);
   const reel = [];
   for (let i = 0; i < REEL.len; i++)
     reel.push(i === REEL.land ? id : ids[Math.floor(crand(0, ids.length))]);
-  chestCard = { t: 0, item, tier, isNew, isBow, reel, lastIdx: -1, bannerText, landSfx };
+  // the reel wears its odds openly — the exact table this roll was drawn from
+  chestCard = { t: 0, item, tier, isNew, isBow, reel, lastIdx: -1,
+                bannerText, landSfx, odds: table, keyed, stone };
   playSfx('thunk');
   shake(3);
   persistSave();

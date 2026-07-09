@@ -638,3 +638,111 @@ with data URLs). Every .panel now carries a parchment-grain tile +
 inset age vignette; the rollers grew to 22px with wood grain, lacquer
 sheen and gold-ringed turned-wood end knobs protruding past the paper
 (matching the pixel-scroll reference).
+
+## 2026-07-09a — ARMORY TAB, PLAYER LEVEL, SOLD ARMS, OPEN ODDS
+
+**Sold arms**: Worn/Pure blades and bows carry a `price` again
+(botan 350 · kurogane 500 · ame 900 · shirasagi/tsukikage 1100 ·
+repeater 450 · longbow 900 · firebow 1100) bought via `buyArm(id)` on
+the swords/bows tabs; the LEGENDARY tier is never sold — chests keep
+their crown jewels. **位 player level** (25-save): felled foes feed
+`grantPlayerXP` (bosses ×10), thresholds 40×1.18^k, each level +0.5%
+might via `playerLvlMult()` inside both damage chains (P1 only, never
+duels); survives rebirth (in the doRebirth keep list). **具 ARMORY** is
+the shop's new DEFAULT tab (`renderArmory`): player level + xp, drawn
+blade / strung bow with in-place equip rows, base-damage readouts
+(`armoryBaseDmg`), tomb flats, rebirth cycle, and 導 THE PATH FORWARD —
+up to three save-state-aware beginner tips (`armoryGuidance`). The
+chest ROULETTE now wears its odds: the exact drop table rides on
+`chestCard.odds` and is drawn under the spinning reel (plus a 鍵 line
+when a key upgraded the pull). Harness: 51 assertions.
+
+## 2026-07-09b — ARMORY FOLLOW-UPS (from the cycle-5 screenshot)
+
+Three fixes: (1) `.lvlBtn` no longer clips two-glyph kanji (雷光, 白鷺,
+嵐弓…) — min-width + nowrap + side padding, everywhere the class is used
+(armory equip rows, duel pickers, co-op loadout). (2) `armoryGuidance`
+is veteran-aware: `rebirthLevel() > 0` gets cycle-speak (reclear-the-maps,
+rebuilt tomb flats, heirloom charms, legendary-bias pointers) instead of
+novice lectures. (3) `applySaveData` grandfathers old saves ONCE: a save
+with kills but no `playerXP` field seeds its player level from lifetime
+kills (2 xp/kill through the geometric thresholds) — never re-rolled if
+the field exists. Harness: 54 assertions.
+
+## 2026-07-09c — NARROW-ARENA FIXTURE STACKING (bridge)
+
+The bridge theme's arena is a 230px band: clearSpot's push-apart is
+mostly vertical there and the arena clamp shoved fixtures straight back
+— stalemate, shrine under chest. Rewrite: clamp → direct push off the
+nearest offender → deterministic RING WALK of candidates outward on both
+axes/diagonals (×0.8·MIN steps, 8 rings), first clear stand wins. No
+dice at all now — lockstep-safe by construction. Harness: 56 assertions
+incl. a bridge-band shrine+chest+portal pile-up.
+
+## 2026-07-09d — THE DEATH LOOP (first-boss gratification) + banner wrap
+
+**教訓 lesson honor** (gameOver, 65-run): dying in a boss fight banks
+`(damage% of each living lord) × honorKill × 0.5 × honorMult` — every
+attempt pays real progress, a kill always pays strictly more (no suicide
+farming). Shown on the death scroll. **The stall opens on the first
+fall**: `merchantUnlocked = true` on first gameOver — growth arrives
+WITH defeat, not after victory. **修 TRAIN button** on the FELLED screen
+(`btnTrainOver`, shows the wallet) opens the shop over the death scroll;
+`openShop/closeShop` carry a `shopReturn` so leaving the stall returns
+to gameover, with the TRAIN label re-reading the wallet. The button is
+hidden on non-death over screens (duel ends ×2, rushComplete). The loop:
+die → paid → one click → +tier → retry, ~8 seconds.
+**Banner wrap** (drawBannerHUD): long teaching lines shrink 40→26px then
+greedy-wrap onto a second line — hint text can no longer run off the
+paper. Harness: 60 assertions.
+
+## 2026-07-09e — THE ROAD STEEPENS: ×3/cycle lords + 昇 ASCENSION STONES
+
+Rebirth chaining was too easy (the arsenal kept compounding between
+walks). Two changes: (1) `ascensionMults` now scales road-lord HP
+×3^cycle (dmg ×1.6^cycle, /wr to avoid double-count with waveMults) —
+the road OUTPACES the walker's ×1.5, so each successive rebirth is ~2×
+harder relative; cycle 4+ is legend-tier. (2) 昇 ascension stones
+(`save.ascStones`): a rare THIRD draw on the chest's seeded stream
+(4/8/12% by table tier — earlier draws untouched, so pending pulls
+don't shift), surfaced on the carousel + banner. The road requires one
+held stone to begin (btnRebirth gate, UI + click guard) and consumes it
+only at `ascensionComplete` — a failed walk wastes nothing. Spare
+stones cross the cycle (doRebirth keep list). Shown in the armory
+rebirth row + the rebirth scroll. Harness: 63 assertions.
+
+## 2026-07-09f — THE ROAD IS WON BY HANDS: retinue + surge, curve softened
+
+The ×3/cycle stat cliff became SKILL CHECKS. `ascensionMults` softened to
+hp ×2^cycle / dmg ×1.35^cycle (still outpacing the walker's ×1.5). Three
+new mechanics carry the difficulty:
+- **鏡 MirrorGuard** (ENEMY_TYPES 'mirror'): blocks ALL damage from ALL
+  angles until posture-broken (hits feed posture ×1.5); quick jabs.
+- **要 Duelmaster** ('duelmaster'): 3-strike re-tracking flurry chained
+  through st_recover; a roll buys one beat, a PARRY (or break) ends it.
+- **奥 ascendant surge** (Enemy.update, `e.ascSurge`): once, at ≤50% hp —
+  6s of ×1.3 windup tempo (bosses' explicit durs included via
+  enter_windup) and ×1.25 damage, neon crackle; a posture break snuffs
+  it early (dmg restored via `dmgPreSurge`).
+Road cycle 1+: lords all get ascSurge + retinue spawns (guards
+min(2,lvl), masters min(2,lvl−1), tuned ×1.35^lvl hp). Deep infinite
+(wave 20+) has a 35% chance of one retinue member per wave. Rebirth
+scroll + armory copy updated. Harness: 69 assertions.
+
+## 2026-07-09g — MOMENTUM: stacking blessings, hot combo, temper motes, elite remixes
+
+The mid-run "fun sag" fixes: (1) **BLESSINGS STACK to tier III** —
+game.blessings holds duplicates; every effect site reads its tier via
+`blessVal(id, t1, t2, t3)` (30-player defines it): mend 6/10/14 ·
+wind 18/28/36% · magnet ×2/3/4 · reap 12/20/28 · thorn 12/24/40 ·
+focus ×2/2.8/3.6 · tempo 25/45/65% · edge 10/18/26%; shrine pool
+re-offers below tier III, cards show "deepens to II/III", banners name
+the tier. Infinite shrines now every 3rd wave (was 5th) — the storm's
+in-run build engine. (2) **HOT COMBO**: at 10+ combo stamina regen ×1.15
+(updateSamurai), HUD combo glows gold with "気 hot — breath +15%".
+(3) **Temper motes**: every trash kill flies a gold mote from corpse to
+killer + a "+temper" floater every 3rd kill — pure feedback. (4) **Two
+elite affixes**: 'surgetouched' (gets the 奥 ascendant surge) and
+'mirrortouched' (blocks all damage while posturing — its own attack/
+recovery are the punish windows; resolved in Enemy.hurt). Harness: 74
+assertions.

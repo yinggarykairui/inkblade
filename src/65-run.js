@@ -210,6 +210,10 @@ function genInfiniteComp(w) {
   const count = Math.min(3 + Math.floor(w / 4), 9);
   const comp = [];
   if (arenaIdx >= 3 && w >= 8 && srandom() < .5) comp.push('brute');
+  // the deep storm learns the road's tricks: past wave 20 the skill
+  // checks walk the waves too — one at a time, never a wall of them
+  if (w >= 20 && srandom() < .35)
+    comp.push(srandom() < .6 ? 'mirror' : 'duelmaster');
   while (comp.length < count) comp.push(pools[Math.floor(srandom() * pools.length)]);
   return comp;
 }
@@ -405,8 +409,10 @@ function startInfiniteWave(first) {
   // but not online: the shop's DOM clicks don't ride the tick pipeline
   if (save.merchantUnlocked && (w - 1) % 5 === 0 && !netCoop())
     spawnPortal(ARENA.x + 56, ARENA.y + 56, 'merchant');
-  // every fifth wave survived, a shrine stands in the far corner
-  if (w > 1 && (w - 1) % 5 === 0)
+  // every THIRD wave survived, a shrine stands in the far corner — the
+  // storm's in-run build engine: deepen a blessing or diversify, every
+  // few minutes a real decision (2026-07-09: was every 5th)
+  if (w > 1 && (w - 1) % 3 === 0)
     spawnShrine(ARENA.x + ARENA.w - 60, ARENA.y + 60);
 }
 /* ---------- boss rush ----------
@@ -455,11 +461,14 @@ function startRushStage() {
    is always the Storm Sovereign, Ascendant.                             */
 function ascensionMults() {
   const lvl = rebirthLevel();
-  // waveMults already hardens ×1.08/cycle; this tops it up so the lords'
-  // health tracks the player's ×1.5^cycle exactly, damage rising gentler
-  // (the 40%-cap fairness rule holds regardless)
-  return { hp: Math.max(1, rebirthMult() * .85 / (1 + .08 * lvl)),
-           dmg: Math.max(1, Math.pow(1.22, lvl)) };
+  // THE ROAD OUTPACES THE WALKER (2026-07-09b): lords DOUBLE each cycle
+  // against the player's ×1.5 — a steady relative climb — while the real
+  // difficulty comes from SKILL CHECKS, not sponges: surging lords
+  // (ultimate states) and the retinue (mirror guards, duelmasters) join
+  // from cycle 1. Numbers gate less; hands gate more.
+  const wr = 1 + .08 * lvl;   // waveMults already applies this — divide out
+  return { hp: Math.max(1, Math.pow(2, lvl) * .85 / wr),
+           dmg: Math.max(1, Math.pow(1.35, lvl) / wr) };
 }
 function startAscensionStage() {
   bankOrbs();
@@ -470,6 +479,22 @@ function startAscensionStage() {
   const remixed = lvl >= 1 || k === 5;
   spawnBosses(remixed ? makeRemixBossList(k - 1) : makeLevelBossList(k),
               ascensionMults());
+  if (lvl >= 1) {
+    // cycle 1+: the lords carry ULTIMATE STATES (奥 surge at half health,
+    // snuffed by a posture break) and bring their RETINUE — the skill
+    // checks that no arsenal can shortcut
+    for (const b of enemies) b.ascSurge = true;
+    const guards = Math.min(2, lvl);                       // 鏡 posture check
+    const masters = lvl >= 2 ? Math.min(2, lvl - 1) : 0;   // 要 parry check
+    const rm = { hp: Math.pow(1.35, lvl), dmg: Math.pow(1.12, lvl), proj: 1 };
+    for (let i = 0; i < guards + masters; i++) {
+      const spot = wallSpot();
+      const e = i < guards ? new MirrorGuard(spot.x, spot.y)
+                           : new Duelmaster(spot.x, spot.y);
+      tuneEnemy(e, rm);
+      enemies.push(e);
+    }
+  }
   const name = (remixed ? BOSS_REMIX_NAMES : BOSS_NAMES)[k - 1];
   setBanner(k === 1 ? `転生の道 — the road opens · ${name} (1/5)`
           : k < 5 ? `転生の道 — ${name} bars the road (${k}/5)`
@@ -477,6 +502,8 @@ function startAscensionStage() {
 }
 function ascensionComplete() {
   bankOrbs();
+  // the toll is paid at the FAR end — a failed walk never wastes the stone
+  save.ascStones = Math.max(0, (save.ascStones || 0) - 1);
   doRebirth();
   game.honor = save.honor;
   game.equipped = save.equipped;
@@ -508,6 +535,7 @@ function rushComplete() {
     `best: <b>${fmtTime(save.bestRushTime)}</b>${first ? ' — a first clear' : ''}` +
     ` · honor earned: <b>${game.honorEarned}</b>`;
   document.getElementById('overScores').innerHTML = '';
+  document.getElementById('btnTrainOver').style.display = 'none';
   showOverlay('over');
 }
 /* ---------- 墓 the Tomb of the Fallen ----------
@@ -912,6 +940,20 @@ function onWaveCleared() {
 }
 function gameOver() {
   bankOrbs();
+  // 教訓 lesson honor — the wounds left on a still-standing lord pay
+  // half-rate: every attempt banks real progress, but a kill always pays
+  // strictly more, so dying on purpose is never the better trade
+  let lesson = 0;
+  for (const e of enemies) {
+    if (!e.isBoss || e.dead) continue;
+    lesson += clamp(1 - e.hp / e.maxHp, 0, 1) * e.honorKill * .5;
+  }
+  lesson = Math.round(lesson * (game.honorMult || 1));
+  if (lesson > 0) addHonor(lesson);
+  // the merchant finds you at your lowest — growth arrives WITH defeat,
+  // not after victory: the first fall opens the stall for good
+  const stallJustOpened = !save.merchantUnlocked;
+  if (stallJustOpened) save.merchantUnlocked = true;
   game.state = 'gameover';
   save.stats.deaths++;
   inkSplat(player.x, player.y);
@@ -951,9 +993,17 @@ function gameOver() {
   // the recap names the killer — the lesson survives the ink
   const fb = game.lastHitDesc
     ? `<br>felled by <b>${game.lastHitDesc.name}</b> (−${fmtNum(game.lastHitDesc.dmg)})` : '';
+  const lessonLine = lesson > 0
+    ? `<br>教訓 the lord remembers your strokes — <b>誉 ${fmtNum(lesson)}</b> for the wounds you left` : '';
+  const stallLine = stallJustOpened
+    ? `<br><i>the merchant hears of your fall — the stall stands open</i>` : '';
   document.getElementById('overStats').innerHTML =
-    statLine + ` wielding <b>${WEAPONS[game.equipped].name}</b>` + fb + `<br>` +
+    statLine + ` wielding <b>${WEAPONS[game.equipped].name}</b>` + fb + lessonLine + stallLine + `<br>` +
     `Honor earned this run: <b>${game.honorEarned}</b> · wallet: <b>誉 ${game.honor}</b> <i>(kept)</i>`;
+  // die → paid → one click → stronger → retry: the TRAIN door is right here
+  const tb = document.getElementById('btnTrainOver');
+  tb.style.display = 'inline-block';
+  tb.textContent = `修 TRAIN — 誉 ${fmtNum(game.honor)}`;
   document.getElementById('overScores').innerHTML =
     game.mode === 'infinite' ? scoreListHTML() : '';
   showOverlay('over');

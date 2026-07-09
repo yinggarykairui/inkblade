@@ -59,8 +59,21 @@ function stacksOf(pl) { return pl.p2 ? (pl.ameStacks || 0) : game.ameStacks; }
 function setStacks(pl, v) { if (pl.p2) pl.ameStacks = v; else game.ameStacks = v; }
 function lastHurtOf(pl) { return pl.p2 ? (pl.lastHurtAt == null ? -99 : pl.lastHurtAt) : game.lastHurtAt; }
 
-// run-scoped blessing check (shrines populate game.blessings)
+// run-scoped blessing check (shrines populate game.blessings).
+// BLESSINGS STACK (2026-07-09): taking the same blessing again deepens it
+// to tier II, then III — game.blessings simply holds duplicates, and every
+// effect site reads its tier through blessVal(id, t1, t2, t3).
 function hasBless(id) { return !!(game.blessings && game.blessings.includes(id)); }
+function blessCount(id) {
+  if (!game.blessings) return 0;
+  let n = 0;
+  for (const b of game.blessings) if (b === id) n++;
+  return n;
+}
+function blessVal(id, v1, v2, v3) {
+  const n = blessCount(id);
+  return n >= 3 ? v3 : n === 2 ? v2 : n === 1 ? v1 : 0;
+}
 // equipped-charm check — charms never apply in duels.
 // Cycle 6's Twin Charms opens a second slot (save.charm2).
 function charmed(id) {
@@ -101,7 +114,8 @@ function onPerfectDodge(pl) {
     hintOnce('parry', 'C — a parry as the blow lands turns it aside and opens a riposte');
   }
   addText(pl.x, pl.y - 26, 'perfect dodge!', GOLD, 14);
-  if (hasBless('mend')) pl.hp = Math.min(pl.maxHp, pl.hp + 6);
+  const mendV = blessVal('mend', 6, 10, 14);
+  if (mendV) pl.hp = Math.min(pl.maxHp, pl.hp + mendV);
 }
 
 function resetPlayer() {
@@ -206,14 +220,16 @@ function startAttackFor(pl) {
   // so a step is always worth its face and never rides rarity/temper/surge;
   // rebirth is the only exponential. The second blade is duel-raw: the
   // steel alone, no ledger behind it
+  const edgeMul = 1 + blessVal('edge', .10, .18, .26);
   let dmg = pl.p2
     ? Math.round(wpn.dmg * (weak ? .55 : 1) * (charged ? 1.5 : 1)
-                 * (hasBless('edge') ? 1.1 : 1)
+                 * edgeMul
                  * (1 + .15 * (pl.resolve || 0)))   // 志 the lords remember
 
     : Math.round((wpn.dmg + rebirthLevel())
-                 * upgDmgMul() * (weak ? .55 : 1) * (charged ? 1.5 : 1)
-                 * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1)
+                 * upgDmgMul() * playerLvlMult() * (weak ? .55 : 1)
+                 * (charged ? 1.5 : 1)
+                 * (charmed('oni') ? 1.2 : 1) * edgeMul
                  * (surge ? 2 : 1) * rebirthMult()
                  * rarityMult(wpn.id) * wxpMult(wpn.id))    // the vertical tracks
       + tombAtk();                                          // the flat one
@@ -451,12 +467,14 @@ function updateSamurai(pl, dt) {
   // 奥義 INK SURGE: while the surge runs the lungs never empty (P1)
   if (!pl.p2 && ultBuffed()) pl.st = pl.maxSt;
 
-  // stamina regen (pauses briefly after any action)
+  // stamina regen (pauses briefly after any action) — a HOT COMBO (10+)
+  // keeps the lungs fuller: aggression between bosses pays in tempo
   pl.regenDelay = Math.max(0, pl.regenDelay - dt);
-  const regenRate = pl.p2 ? 20 : upgRegen();
+  const regenRate = (pl.p2 ? 20 : upgRegen())
+    * (1 + blessVal('tempo', .25, .45, .65))
+    * (game.combo >= 10 ? 1.15 : 1);
   if (!pl.action && pl.regenDelay <= 0)
-    pl.st = Math.min(pl.maxSt,
-      pl.st + regenRate * (hasBless('tempo') ? 1.25 : 1) * dt);
+    pl.st = Math.min(pl.maxSt, pl.st + regenRate * dt);
 
   // directional input
   const inp = gatherInput(pl);
@@ -506,8 +524,7 @@ function updateSamurai(pl, dt) {
   if (pl.meditating) {
     mx = 0; my = 0;
     pl.st = Math.min(pl.maxSt,
-      pl.st + regenRate * (hasBless('tempo') ? 1.25 : 1) *
-      (pl.regenDelay <= 0 ? 2 : 3) * dt);
+      pl.st + regenRate * (pl.regenDelay <= 0 ? 2 : 3) * dt);
     if (Math.random() < dt * 7)
       particles.push({ kind: 'dot', x: pl.x + crand(-8, 8), y: pl.y - pl.r,
         vx: 0, vy: -34, t: 0, life: .8, color: 'rgba(168,132,58,.55)', rad: 1.8 });
@@ -652,7 +669,7 @@ function updateSamurai(pl, dt) {
       if (a.t >= a.dur) pl.action = null;
     }
   } else {
-    const spd = pl.speed * (hasBless('wind') ? 1.18 : 1)
+    const spd = pl.speed * (1 + blessVal('wind', .18, .28, .36))
               * (pl.bowDraw ? .42 : 1);   // a bent string roots the feet
     vx = mx * spd; vy = my * spd;
   }

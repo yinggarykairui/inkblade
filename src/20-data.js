@@ -28,7 +28,9 @@ function rarityOf(id) { return RARITY[WPN_RARITY[id] || BOW_RARITY[id] || 'worn'
 // weapon XP: geometric thresholds, ×1.085 cutting weight per level
 function xpForLevel(k) { return Math.round(60 * Math.pow(1.25, k)); }
 function wxpGrowth(lvl) { return Math.pow(1.08, lvl); }
-// chest drop tables by map tier — [worn, pure, legendary] weights
+// chest drop tables by map tier — [worn, pure, legendary] weights.
+// Worn and Pure arms are ALSO sold at the stall (price fields above);
+// the legendary tier is chest-only — the reel keeps its crown jewels.
 const DROP_TABLES = [
   { worn: .82, pure: .15, legendary: .03 },   // maps 1–2
   { worn: .60, pure: .32, legendary: .08 },   // maps 3–4
@@ -106,18 +108,23 @@ const WEAPONS = {
     dmg: 12, spdMul: 1, arc: 2.3, reach: 60, stCost: 18,
     desc: 'The dojo training blade. Balanced, honest, unremarkable.' },
   ame: { id: 'ame', kanji: '雨', name: 'Ame', epithet: 'Rain',
+    price: 900,
     dmg: 6, spdMul: .68, arc: 1.6, reach: 56, stCost: 9,
     desc: 'Needle-thin, tireless. Consecutive hits without a whiff quicken the blade further (up to 5 stacks).' },
   shirasagi: { id: 'shirasagi', kanji: '白鷺', name: 'Shirasagi', epithet: 'White Heron',
+    price: 1100,
     dmg: 8, spdMul: .78, arc: 1.7, reach: 58, stCost: 12,
     desc: 'Pale and weightless. Dodge-roll into a swing to extend its active frames — flow like water.' },
   botan: { id: 'botan', kanji: '牡丹', name: 'Botan', epithet: 'Peony',
+    price: 350,
     dmg: 12, spdMul: .95, arc: 2.2, reach: 48, stCost: 16,
     desc: 'A show blade, short but lovely. Clean hits (no real wound for 2s — scratches under 5% are forgiven) strike 40% harder.' },
   kurogane: { id: 'kurogane', kanji: '黒鉄', name: 'Kurogane', epithet: 'The Iron Crow',
+    price: 500,
     dmg: 17, spdMul: 1.25, arc: 2.8, reach: 62, stCost: 20,
     desc: 'Heavy as a crow’s omen. Every 3rd combo hit lands as a crushing crow strike.' },
   tsukikage: { id: 'tsukikage', kanji: '月影', name: 'Tsukikage', epithet: 'Moon Shadow',
+    price: 1100,
     dmg: 12, spdMul: 1, arc: 2.3, reach: 60, stCost: 18,
     desc: 'Drinks the light. Striking a foe mid-windup — a true punish — refunds the swing’s stamina.' },
   akaoni: { id: 'akaoni', kanji: '赤鬼', name: 'Akaoni', epithet: 'Red Demon',
@@ -164,14 +171,17 @@ const BOWS = {
     draw: .4, dmg: 11, speed: 520, stCost: 12,
     desc: 'A hunter’s shortbow. Quick to bend, honest in flight — the first string every archer learns.' },
   longbow: { id: 'longbow', kanji: '大弓', name: 'Ōyumi', epithet: 'The Patient Arc',
+    price: 900,
     pierce: 1,
     draw: .95, dmg: 26, speed: 660, stCost: 20,
     desc: 'Slow to bend, cruel to receive. A drawn shaft passes through one foe and finds the next.' },
   repeater: { id: 'repeater', kanji: '連弩', name: 'Rendō', epithet: 'Three Strings',
+    price: 450,
     burst: 3,
     draw: .22, dmg: 6, speed: 470, stCost: 17,
     desc: 'Three strings, one release — a rattling three-arrow burst. Weak shafts, and the lungs pay dearly for the speed.' },
   firebow: { id: 'firebow', kanji: '火矢', name: 'Hiya', epithet: 'The Ground Remembers',
+    price: 1100,
     burn: true,
     draw: .6, dmg: 13, speed: 540, stCost: 15,
     desc: 'Pitch-wrapped arrowheads. Where a shaft lands the ground remembers — a patch of flame that bites all who stand in it.' },

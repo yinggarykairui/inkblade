@@ -893,9 +893,30 @@ function drawBannerHUD() {
     ctx.save();
     ctx.globalAlpha = alpha * .9;
     ctx.fillStyle = themeIndex === 4 ? '#e8e4f4' : INK;
-    ctx.font = '40px Georgia,serif';
     ctx.textAlign = 'center';
-    ctx.fillText(game.bannerText, W / 2, H / 2 - 90);
+    // long teaching lines must stay on the paper: shrink toward 26px
+    // first, then wrap onto a second line — never off the edge
+    const maxW = W - 140;
+    let size = 40;
+    ctx.font = size + 'px Georgia,serif';
+    while (size > 26 && ctx.measureText(game.bannerText).width > maxW) {
+      size -= 2;
+      ctx.font = size + 'px Georgia,serif';
+    }
+    if (ctx.measureText(game.bannerText).width <= maxW) {
+      ctx.fillText(game.bannerText, W / 2, H / 2 - 90);
+    } else {
+      // greedy two-line wrap at the nearest word break
+      const words = game.bannerText.split(' ');
+      let l1 = '', l2 = '';
+      for (const w2 of words) {
+        const tryL = l1 ? l1 + ' ' + w2 : w2;
+        if (!l2 && ctx.measureText(tryL).width <= maxW) l1 = tryL;
+        else l2 = l2 ? l2 + ' ' + w2 : w2;
+      }
+      ctx.fillText(l1, W / 2, H / 2 - 106);
+      ctx.fillText(l2, W / 2, H / 2 - 106 + size + 6);
+    }
     ctx.restore();
   }
 }
@@ -1237,18 +1258,25 @@ function drawHUD() {
   ctx.fillStyle = GOLD;
   ctx.font = '20px Georgia,serif';
   ctx.fillText(`誉 ${fmtNum(game.honor)}`, W - 34, 34);
-  // combo
+  // combo — at 10+ it runs HOT: a gold glow and faster breath (the +15%
+  // stamina regen lives in updateSamurai; this is its face)
   if (game.combo > 1) {
     const pop = 1 + game.comboPop * 1.6;
+    const hot = game.combo >= 10;
     ctx.save();
     ctx.translate(W - 60, 68);
     ctx.scale(pop, pop);
+    if (hot) {
+      ctx.shadowBlur = 12 + 5 * Math.sin(game.time * 7);
+      ctx.shadowColor = GOLD;
+    }
     ctx.fillStyle = GOLD;
     ctx.font = 'bold 22px Georgia,serif';
     ctx.textAlign = 'center';
     ctx.fillText(`${game.combo}×`, 0, 0);
+    ctx.shadowBlur = 0;
     ctx.font = 'italic 11px Georgia,serif';
-    ctx.fillText('combo', 0, 16);
+    ctx.fillText(hot ? '気 hot — breath +15%' : 'combo', 0, 16);
     ctx.restore();
   }
   // equipped blade — bottom left
@@ -1441,15 +1469,35 @@ function drawHUD() {
     ctx.moveTo(cx, cy - winH / 2 - 7); ctx.lineTo(cx, cy - winH / 2 + 6);
     ctx.moveTo(cx, cy + winH / 2 + 7); ctx.lineTo(cx, cy + winH / 2 - 6);
     ctx.stroke();
-    // once the reel rests, the pull is named beneath the window
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if (landed) {
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      // once the reel rests, the pull is named beneath the window
       ctx.fillStyle = cc.tier === 'legendary' ? GOLD : INK;
       ctx.font = 'italic 14px Georgia,serif';
       ctx.fillText(
         `${RARITY[cc.tier].kanji} ${cc.item.name} — “${cc.item.epithet}”` +
         (cc.isNew ? '' : ' · melted to temper'),
         cx, cy + winH / 2 + 18);
+      if (cc.stone) {   // the rarest gleam of all rides beneath the pull
+        ctx.fillStyle = GOLD;
+        ctx.font = 'italic 13px Georgia,serif';
+        ctx.fillText(`昇 an ascension stone — the road's toll (held: ${save.ascStones})`,
+          cx, cy + winH / 2 + 36);
+      }
+    } else if (cc.odds) {
+      // while it spins, the reel wears its true odds beneath the marker
+      const y2 = cy + winH / 2 + 16;
+      ctx.font = 'italic 12px Georgia,serif';
+      ctx.fillStyle = tierCol('legendary');
+      ctx.fillText(`傳 ${Math.round(cc.odds.legendary * 100)}%`, cx - 80, y2);
+      ctx.fillStyle = tierCol('pure');
+      ctx.fillText(`澄 ${Math.round(cc.odds.pure * 100)}%`, cx, y2);
+      ctx.fillStyle = tierCol('worn');
+      ctx.fillText(`鈍 ${Math.round(cc.odds.worn * 100)}%`, cx + 76, y2);
+      if (cc.keyed) {
+        ctx.fillStyle = GOLD;
+        ctx.fillText('鍵 the key vouches — worn becomes pure', cx, y2 + 16);
+      }
     }
     ctx.restore();
     ctx.globalAlpha = 1;

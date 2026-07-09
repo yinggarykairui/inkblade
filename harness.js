@@ -77,14 +77,16 @@ if (!code || code.length < 100000) throw new Error('game script not found in ind
 // sandbox) via a getter object appended in the same scope
 const EXPORT_NAMES = ['game', 'save', 'keys', 'player', 'enemies', 'shrine',
   'pArrows', 'CURSES', 'BLESSINGS', 'WEAPONS', 'BOWS', 'DROP_TABLES',
-  'chests', 'chestCard', 'REEL'];
+  'chests', 'chestCard', 'REEL', 'ARENA'];
 const FN_NAMES = ['tombCost', 'tombAtk', 'spawnShrine', 'openShrine', 'updateTomb',
   'damagePlayer', 'startAttackFor', 'startAttack', 'activateUlt', 'updatePlayer',
   'makeP2', 'onBossDeath', 'playerLooseArrow', 'wxpOf', 'rebirthLevel',
   'mulberry32', 'hash2', 'openChest', 'resetPlayer', 'Grunt', 'ultReady',
   'persistSave', 'rand', 'onWaveCleared', 'updateChests', 'rollChest',
   'startRun', 'ascensionMults', 'hintOnce', 'renderMenu',
-  'tryInteract', 'clearSpot'];
+  'tryInteract', 'clearSpot',
+  'playerLvl', 'playerLvlMult', 'grantPlayerXP', 'xpForPlayerLvl', 'buyArm',
+  'applySaveData', 'armoryGuidance', 'gameOver', 'openShop', 'closeShop'];
 const shim = '\n;globalThis.__X = {'
   + EXPORT_NAMES.map(n => `get ${n}() { return ${n}; }`).join(',')
   + ',' + FN_NAMES.map(n => `${n}: ${n}`).join(',')
@@ -279,6 +281,55 @@ t('E answers the nearer fixture (chest, not shop)',
   ch.opened && X.game.state === 'playing');
 X.merchant = null;
 
+console.log('narrow arena — the bridge cannot stack fixtures');
+{
+  const AR = X.ARENA, saved = { x: AR.x, y: AR.y, w: AR.w, h: AR.h };
+  Object.assign(AR, { x: 42, y: 205, w: 940, h: 230 });   // the bridge band
+  X.merchant = null; X.portal = { x: 120, y: 320 };
+  X.game.blessings = []; X.game.shrineN = 0;
+  X.spawnShrine(120, 320);                                 // wants the portal's spot
+  t('the shrine slides clear on the bridge',
+    Math.hypot(X.shrine.x - X.portal.x, X.shrine.y - X.portal.y) >= 110);
+  X.rollChest({ x: 120, y: 320 }, 0);
+  const bch = X.chests[X.chests.length - 1];
+  t('the chest finds its own stand among both',
+    Math.hypot(bch.x - X.portal.x, bch.y - X.portal.y) >= 110 &&
+    Math.hypot(bch.x - X.shrine.x, bch.y - X.shrine.y) >= 110);
+  X.portal = null;
+  Object.assign(AR, saved);
+}
+
+console.log('armory expansion — player level, purchases, open odds');
+// 位 player level: geometric thresholds, +0.5%/level in the damage chain
+X.game.mode = 'level'; X.save.playerXP = { xp: 0, lvl: 0 };
+X.grantPlayerXP(45);
+t('45 xp crosses the 40-xp first threshold', X.playerLvl() === 1 && X.save.playerXP.xp === 5);
+X.game.mode = 'duel'; X.grantPlayerXP(500); X.game.mode = 'level';
+t('duels never feed the level', X.playerLvl() === 1);
+X.save.playerXP = { xp: 0, lvl: 100 };
+X.save.upgrades.dmg = 0; X.save.tomb.edge = 0; X.game.equipped = 'tetsu';
+X.game.state = 'playing'; X.player.st = 100; X.player.action = null; X.player.stance = 'sword';
+X.startAttack();
+t('level 100 = ×1.5 might (12 → 18)', X.player.action && X.player.action.dmg === 18);
+X.player.action = null; X.save.playerXP = { xp: 0, lvl: 0 };
+// purchases: Worn/Pure arms sold, legendaries never
+X.game.honor = 1000; X.save.honor = 1000;
+X.save.owned = ['tetsu'];
+t('an affordable blade is bought', X.buyArm('kurogane') && X.save.owned.includes('kurogane')
+  && X.game.honor === 500);
+t('owned arms cannot be re-bought', !X.buyArm('kurogane'));
+t('legendaries are never sold', !X.buyArm('raiko') && !X.buyArm('stormbow'));
+X.save.bowsOwned = ['shortbow'];   // the chest tests above may have pulled it
+t('a bow buys like a blade', X.buyArm('repeater') && X.save.bowsOwned.includes('repeater'));
+// the reel wears its odds
+X.game.mode = 'campaign'; X.game.map = 0;
+X.openChest({ x: 300, y: 300, bias: 0, opened: false });
+const od = X.chestCard && X.chestCard.odds;
+t('the roulette carries its true odds',
+  od && Math.abs(od.worn + od.pure + od.legendary - 1) < .001);
+for (let i = 0; i < 300 && X.chestCard; i++) X.updateChests(1 / 60);
+X.game.mode = 'level';
+
 console.log('転生の道 — the road of rebirth');
 // the road scales with the walker: cycle 0 fights at base, cycle 3 rises
 X.save.rebirth = { level: 0 };
@@ -293,10 +344,123 @@ t('the road opens on a boss', X.game.mode === 'ascension' && X.game.stage === 1 
   X.enemies.length > 0 && X.enemies.every(e => e.isBoss));
 X.game.stage = 5;
 X.game.lastBossDeath = { x: 400, y: 300 };
+X.save.playerXP = { xp: 12, lvl: 7 };
+X.save.ascStones = 2;
 X.onWaveCleared();
 t('the walked road turns the cycle', X.rebirthLevel() === 1);
 t('the road ends at the dojo gate', X.game.state === 'title');
 t('the arsenal crosses the cycle', X.save.owned.includes('tetsu'));
+t('the player level crosses the cycle', X.playerLvl() === 7);
+t('the walk consumed exactly one stone; the spare crossed too',
+  X.save.ascStones === 1);
+
+console.log('armory follow-ups — veteran guidance + grandfathered levels');
+// a reborn hand is never lectured like a novice
+X.save.rebirth = { level: 5 }; X.save.maxLevelCleared = 0; X.save.charmsOwned = [];
+const vTips = X.armoryGuidance().join(' | ');
+t('veteran guidance speaks in cycles', vTips.includes('cycle 5') &&
+  !vTips.includes('opens every road'));
+X.save.rebirth = { level: 0 };
+// an old save wakes up at a level its lifetime kills already earned
+X.applySaveData({ honor: 0, owned: ['tetsu'], stats: { kills: 1000 } });
+t('1000 lifetime kills grandfather a real level', X.playerLvl() >= 8);
+const seeded = X.playerLvl();
+X.applySaveData({ honor: 0, owned: ['tetsu'], stats: { kills: 99999 },
+                  playerXP: { xp: 0, lvl: seeded } });
+t('seeding happens only once — an existing level is never re-rolled',
+  X.playerLvl() === seeded);
+
+console.log('昇 ascension stones — the road grows a toll and a climb');
+// the road DOUBLES per cycle while the walker only ×1.5s
+X.save.rebirth = { level: 3 };
+t('cycle 3 lords stand ~5.5× (2^3 · .85 / wr)',
+  X.ascensionMults().hp > 4 && X.ascensionMults().hp < 8);
+X.save.rebirth = { level: 0 };
+
+console.log('the retinue — skill checks walk the road');
+X.save.rebirth = { level: 2 };
+X.startRun('ascension');
+t('cycle-2 road brings mirror guards and a duelmaster',
+  X.enemies.some(e => e.mirrorAll) && X.enemies.some(e => e.chainMax === 3));
+t('the road lords carry the surge',
+  X.enemies.filter(e => e.isBoss).every(e => e.ascSurge));
+const mg = X.enemies.find(e => e.mirrorAll);
+mg.state = 'circle';
+const mgHp = mg.hp;
+mg.hurt(500, 0, undefined, 10, X.player, 'tetsu');
+t('the mirror turns raw steel aside, feeding its stance',
+  mg.hp === mgHp && mg.posture > 0);
+mg.brokenT = 1;
+mg.hurt(10, 0, undefined, 10, X.player, 'tetsu');
+t('a cracked mirror finally bleeds', mg.hp < mgHp);
+const surgeLord = X.enemies.find(e => e.isBoss);
+const lordDmg = surgeLord.dmg;
+surgeLord.state = 'circle';
+surgeLord.hp = Math.floor(surgeLord.maxHp * .4);
+surgeLord.update(1 / 60);
+t('half health erupts into the 奥 surge', surgeLord.surgeT > 0 && surgeLord.dmg > lordDmg);
+surgeLord.brokenT = 1;
+surgeLord.update(1 / 60);
+t('a posture break snuffs the surge', surgeLord.surgeT === 0 && surgeLord.dmg === lordDmg);
+X.save.rebirth = { level: 0 };
+X.game.state = 'title'; X.enemiesSet = [];
+// stones fall from the seeded stream — deterministic per save.seed
+X.save.seed = 424242; X.save.chestsOpened = 0; X.save.ascStones = 0;
+X.game.mode = 'campaign'; X.game.map = 4; X.game.state = 'playing';
+for (let i = 0; i < 40; i++) X.openChest({ x: 300, y: 300, bias: 0, opened: false });
+t('stones gleam from lacquer chests (40 rich pulls)', X.save.ascStones >= 1);
+for (let i = 0; i < 400 && X.chestCard; i++) X.updateChests(1 / 60);
+X.game.mode = 'level';
+
+console.log('momentum — stacking blessings, hot combo, elite mirrors');
+// blessings deepen: tier II Whetted Edge = +18%
+X.game.mode = 'level'; X.game.state = 'playing';
+X.game.blessings = ['edge', 'edge']; X.game.curses = [];
+X.save.upgrades.dmg = 0; X.save.tomb.edge = 0; X.save.playerXP = { xp: 0, lvl: 0 };
+X.save.weaponXP = {};   // the chest tests above melted duplicates into temper
+X.game.equipped = 'tetsu'; X.player.st = 100; X.player.action = null;
+X.startAttack();
+t('tier-II edge cuts +18% (12 → 14)', X.player.action && X.player.action.dmg === 14);
+X.player.action = null;
+// a tier-III blessing leaves the shrine pool
+X.game.blessings = ['mend', 'mend', 'mend']; X.game.shrineN = 0;
+X.spawnShrine(200, 200);
+t('a tier-III blessing is no longer offered',
+  X.shrine.picks.every(p => p.bless.id !== 'mend'));
+X.game.blessings = [];
+// hot combo: 10+ breathes 15% faster
+X.game.combo = 12; X.game.lastComboAt = X.game.time;
+X.player.st = 50; X.player.regenDelay = 0; X.player.action = null;
+X.player.hollowT = 0; X.game.ult.run = null;
+X.updatePlayer(1);
+t('a hot combo fills the lungs +15% (≈29.9 not 26)', X.player.st > 78 && X.player.st < 81);
+X.game.combo = 0;
+// mirror-touched elites block while posturing, bleed in their own recovery
+const me = new X.Grunt(500, 300);
+me.affix = 'mirrortouched'; me.state = 'circle';
+const meHp = me.hp;
+me.hurt(20, 0, undefined, 8, X.player, 'tetsu');
+t('mirror-touched turns steel while posturing', me.hp === meHp && me.posture > 0);
+me.state = 'recover';
+me.hurt(5, 0, undefined, 8, X.player, 'tetsu');
+t('its own recovery is the punish window', me.hp < meHp);
+
+console.log('the death loop — lesson honor, the stall, the TRAIN door');
+X.save.merchantUnlocked = false;
+X.game.mode = 'level'; X.game.state = 'playing'; X.game.honorMult = 1;
+X.game.honor = 0; X.save.honor = 0; X.game.level = 1; X.game.equipped = 'tetsu';
+const lord = new X.Grunt(400, 300);
+lord.isBoss = true; lord.bossName = 'Test Lord';
+lord.honorKill = 600; lord.maxHp = 100; lord.hp = 40;   // 60% wounded
+X.enemiesSet = [lord];
+X.gameOver();
+t('a 60%-wounded lord pays 180 lesson honor (half-rate)', X.game.honor === 180);
+t('the first fall opens the stall', X.save.merchantUnlocked === true);
+X.openShop();
+t('the stall opens over the death scroll', X.game.state === 'shop');
+X.closeShop();
+t('leaving the stall returns to the death scroll', X.game.state === 'gameover');
+X.game.state = 'title';
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -730,6 +730,7 @@ function endDuelMatch() {
     document.getElementById('overStats').innerHTML =
       'all four gates felled —<br>the <b>gold headband</b> is yours, worn in every trial to come';
     document.getElementById('overScores').innerHTML = '';
+    document.getElementById('btnTrainOver').style.display = 'none';
     showOverlay('over');
     return;
   }
@@ -748,6 +749,7 @@ function endDuelMatch() {
       `${WEAPONS[duel.p1.blade].name} vs ${WEAPONS[duel.p2.blade].name}`;
   }
   document.getElementById('overScores').innerHTML = '';
+  document.getElementById('btnTrainOver').style.display = 'none';
   showOverlay('over');
 }
 function updateFighter(f, dt) {

@@ -147,7 +147,9 @@
   .diffBtn.sel{background:var(--red);border-color:var(--red);color:var(--parchment);}
   #diffDesc{font-size:12px;font-style:italic;opacity:.7;margin-top:6px;min-height:15px;}
   .lvlRow{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
-  .lvlBtn{width:40px;height:34px;padding:0;margin:0;font-size:15px;
+  /* two-glyph kanji (雷光, 白鷺, 嵐弓…) must sit side by side, never clip */
+  .lvlBtn{min-width:40px;height:34px;padding:0 7px;margin:0;font-size:15px;
+    white-space:nowrap;line-height:31px;
     background:transparent;color:var(--ink);border:1.5px solid rgba(43,35,32,.35);}
   .lvlBtn.sel{background:var(--ink);color:var(--parchment);border-color:var(--ink);}
   .lvlBtn:disabled{opacity:.3;cursor:default;background:transparent;color:var(--ink);}
@@ -371,7 +373,8 @@
         <div class="sub" id="shopGreeting">“Honor buys steel, stranger. Spend it well.”</div>
         <div id="shopHonorLine">誉 <span id="shopHonor">0</span></div>
         <div class="shopTabs">
-          <button class="shopTab sel" id="tabSwords">刀 SWORDS</button>
+          <button class="shopTab sel" id="tabArmory">具 ARMORY</button>
+          <button class="shopTab" id="tabSwords">刀 SWORDS</button>
           <button class="shopTab" id="tabBows">弓 BOWS</button>
           <button class="shopTab" id="tabUpgrades">修 TRAINING</button>
           <button class="shopTab" id="tabCharms">符 CHARMS</button>
@@ -473,6 +476,7 @@
         <div class="stats" id="overStats"></div>
         <div id="overScores"></div>
         <button id="btnRestart2">RETRY</button>
+        <button id="btnTrainOver" style="display:none;">修 TRAIN</button>
         <button id="btnMenu" class="ghost">MAIN&nbsp;MENU</button>
         <div class="hint">press Enter to retry — honor and gear are kept</div>
       </div>

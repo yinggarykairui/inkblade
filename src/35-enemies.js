@@ -84,6 +84,35 @@ class Enemy {
     this.x += this.kbx * dt; this.y += this.kby * dt;
     const fn = this['st_' + this.state];
     if (fn) fn.call(this, dt);
+    // 奥 the ASCENDANT SURGE — an enemy ultimate state: at half health a
+    // marked foe erupts (faster windups, +25% cruelty, neon crackle) for
+    // six seconds. Counterplay is the player's own grammar: crack its
+    // POSTURE and the surge is snuffed early.
+    if (this.ascSurge && !this.surgeUsed && this.hp <= this.maxHp * .5) {
+      this.surgeUsed = true;
+      this.surgeT = 6;
+      this.dmgPreSurge = this.dmg;
+      this.dmg = Math.round(this.dmg * 1.25);
+      addText(this.x, this.y - this.r - 24, '奥 SURGE!', '#7c5cff', 16);
+      particles.push({ kind: 'ring', x: this.x, y: this.y, t: 0, life: .5,
+        color: 'rgba(124,92,255,.7)', r0: this.r, r1: this.r + 90, w: 3 });
+      freeze(.08); shake(6);
+      playSfx('surge');
+    }
+    if (this.surgeT > 0) {
+      this.surgeT -= dt;
+      if (Math.random() < dt * 14)   // cosmetic crackle only
+        particles.push({ kind: 'line',
+          x: this.x + crand(-this.r, this.r), y: this.y + crand(-this.r, this.r),
+          vx: crand(-70, 70), vy: crand(-70, 70),
+          t: 0, life: .14, color: 'rgba(124,92,255,.8)', w: 1.3 });
+      if (this.surgeT <= 0 || this.brokenT > 0) {   // a break snuffs the surge
+        if (this.brokenT > 0 && this.surgeT > 0)
+          addText(this.x, this.y - this.r - 22, 'surge broken!', GOLD, 13);
+        this.surgeT = 0;
+        if (this.dmgPreSurge) this.dmg = this.dmgPreSurge;
+      }
+    }
     // elite damage aura — a seared ring every blade must respect
     if (this.affix === 'aura' && !this.dead) {
       this.auraTick = Math.max(0, (this.auraTick || 0) - dt);
@@ -138,7 +167,7 @@ class Enemy {
       this.setState('hurt');
     }
     // the Tomb's Set Stance also steadies the answer: +1% window per step
-    byPl.riposteT = 1.3 * (hasBless('focus') ? 2 : 1)
+    byPl.riposteT = 1.3 * (1 + blessVal('focus', 1, 1.8, 2.6))
                     * (1 + (byPl.p2 ? 0 : tombSteps('stance')) * .01);
     byPl.st = Math.min(byPl.maxSt, byPl.st + 14);
     if (!byPl.p2) { save.stats.parries++; award('firstParry'); }
@@ -147,8 +176,9 @@ class Enemy {
     addText(mx, my - 18, '弾 parried!', GOLD, 15);
     freeze(.1); shake(5);
     playSfx('parry');
-    if (hasBless('thorn') && !this.dead) {   // thorned guard bites back
-      this.hp -= 12; this.flashT = .12;
+    const thornV = blessVal('thorn', 12, 24, 40);
+    if (thornV && !this.dead) {   // thorned guard bites back
+      this.hp -= thornV; this.flashT = .12;
       if (this.hp <= 0) this.die();
     }
   }
@@ -157,6 +187,17 @@ class Enemy {
     if (src) {
       this.lastHitBy = src;      // co-op: remember whose steel bit last
       this.lastHitArm = arm;     // …and WHICH arm — kills credit the true weapon
+    }
+    // mirror-touched elites: the mirror holds while it postures — its own
+    // attack and recovery are the honest punish windows
+    if (this.affix === 'mirrortouched' && this.brokenT <= 0 &&
+        this.state !== 'attack' && this.state !== 'recover' && this.state !== 'hurt') {
+      this.addPosture(pDmg * 1.25);
+      this.flashT = .08;
+      this.kbx += Math.cos(ang) * 70; this.kby += Math.sin(ang) * 70;
+      addText(this.x, this.y - this.r - 12, 'mirrored', 'rgba(43,35,32,.65)', 12);
+      playSfx('clash');
+      return;
     }
     // shield ashigaru: frontal blows are turned aside — flank it or break it
     if (this.shielded && this.brokenT <= 0 &&
@@ -203,10 +244,24 @@ class Enemy {
     if (!killer.p2) {   // the second blade is progression-free
       save.stats.bladeKills[arm] = (save.stats.bladeKills[arm] || 0) + 1;
       grantWeaponXP(arm, this.isBoss ? 40 : 2);   // kills sharpen the arm used
+      grantPlayerXP(this.isBoss ? 20 : 2);        // …and the hand behind it
     }
     award('firstBlood');
-    if (hasBless('reap'))   // the reaper's rhythm — stamina back on every kill
-      killer.st = Math.min(killer.maxSt, killer.st + 12);
+    const reapV = blessVal('reap', 12, 20, 28);
+    if (reapV)   // the reaper's rhythm — stamina back on every kill
+      killer.st = Math.min(killer.maxSt, killer.st + reapV);
+    // the trash pays in TEMPER, visibly: a hot mote flies home from the
+    // corpse to the hand that fed the blade — pure feedback, zero balance
+    if (!killer.p2 && game.mode !== 'duel' && !this.ghost) {
+      const ma = Math.atan2(killer.y - this.y, killer.x - this.x);
+      const md = dist(this.x, this.y, killer.x, killer.y);
+      particles.push({ kind: 'dot', x: this.x, y: this.y,
+        vx: Math.cos(ma) * 360, vy: Math.sin(ma) * 360,
+        t: 0, life: Math.min(.6, md / 360),
+        color: 'rgba(168,132,58,.85)', rad: 2.4 });
+      if (save.stats.kills % 3 === 0)
+        addText(this.x, this.y - this.r - 6, '+temper', 'rgba(139,109,66,.85)', 11);
+    }
     // elites are the only non-boss honor source — a small scatter
     if (this.elite && !this.isBoss) {
       spawnHonorOrbs(this.x, this.y, Math.max(10, Math.round(this.honorOrb * game.honorMult)));
@@ -272,10 +327,14 @@ class Enemy {
   }
   enter_windup(opts) {
     opts = opts || {};
+    // a surging foe winds up a third faster — bosses' explicit durations
+    // feel it too, so the ultimate state tightens EVERY telegraph
+    const tempo = this.surgeT > 0 ? 1.3 : 1;
+    if (opts.dur !== undefined) opts.dur /= tempo;
     let stretch = 0;
     if (opts.dur === undefined && !opts.noDelay) stretch = adapt.extraDelay();
     this.wDur = opts.dur !== undefined ? opts.dur
-      : this.windupBase / eAggro() + stretch;
+      : this.windupBase / (eAggro() * tempo) + stretch;
     // the adaptive layer plays fair in the open: a stretched windup — its
     // counter to habitual reaction-dodgers — announces itself with a glint
     if (stretch > 0)
@@ -723,8 +782,70 @@ class TrainerBot extends Grunt {
   die() { this.hp = this.maxHp; this.setState('drill'); }
 }
 
+/* --- the Road's retinue: SKILL CHECKS, not stat sponges ---
+   These two walk beside the ascension lords (and the deep storm): one
+   demands posture play, the other demands the parry. Both die fast once
+   their check is answered — the test is the lock, not the health bar. */
+class MirrorGuard extends Enemy {
+  // 鏡 — the mirror turns EVERY edge aside, from every angle. Only
+  // posture passes; crack the stance and it dies like anything else.
+  constructor(x, y) {
+    super(x, y);
+    this.hp = this.maxHp = 60; this.r = 15;
+    this.speed = 120; this.color = '#6d7a80';
+    this.attackRange = 62; this.attackArc = 1.5; this.dmg = 11;
+    this.windupBase = .34; this.activeDur = .12; this.recoverDur = .42;
+    this.lungeSpeed = 330; this.holdDist = 110;
+    this.honorKill = 90; this.weapon = 'spear';
+    this.postureMax = 70; this.postureDrain = 4;
+    this.mirrorAll = true;
+  }
+  hurt(dmg, ang, stun, pDmg = 8, src, arm) {
+    if (this.dead || this.state === 'spawn') return;
+    if (this.brokenT <= 0) {
+      if (src) { this.lastHitBy = src; this.lastHitArm = arm; }
+      this.addPosture(pDmg * 1.5);   // steel feeds the stance, not the wound
+      this.flashT = .08;
+      this.kbx += Math.cos(ang) * 70; this.kby += Math.sin(ang) * 70;
+      addText(this.x, this.y - this.r - 12, 'mirrored', 'rgba(43,35,32,.65)', 12);
+      playSfx('clash');
+      return;
+    }
+    super.hurt(dmg, ang, stun, pDmg, src, arm);
+  }
+}
+class Duelmaster extends Duelist {
+  // 要 — the flurry: three strikes, each re-tracking the samurai. A roll
+  // buys one beat; only a PARRY (or a posture break) ends the sequence.
+  constructor(x, y) {
+    super(x, y);
+    this.hp = this.maxHp = 55; this.r = 14;
+    this.speed = 175; this.color = '#8a5a68';
+    this.attackRange = 70; this.attackArc = 1.3; this.dmg = 9;
+    this.windupBase = .42; this.activeDur = .12; this.recoverDur = .6;
+    this.lungeSpeed = 420; this.holdDist = 140;
+    this.honorKill = 110; this.weapon = 'rapier';
+    this.postureMax = 60;
+    this.chain = 0; this.chainMax = 3;
+  }
+  enter_attack() { super.enter_attack(); this.chain++; }
+  enter_hurt() { this.chain = 0; }
+  getParried(byPl) { this.chain = 0; super.getParried(byPl); }
+  st_recover(dt) {
+    if (this.chain > 0 && this.chain < this.chainMax && this.stateT > .12) {
+      this.facePlayer(12, dt);   // the flurry hunts — re-track between strikes
+      this.setState('windup', { dur: .24, noDelay: true });
+      return;
+    }
+    if (this.stateT >= this.recoverDur) {
+      this.chain = 0;
+      this.setState(srandom() < .3 ? 'retreat' : 'approach');
+    }
+  }
+}
 const ENEMY_TYPES = { grunt: Grunt, duelist: Duelist, brute: Brute, archer: Archer,
-                      shinobi: Shinobi, ashigaru: ShieldAshigaru };
+                      shinobi: Shinobi, ashigaru: ShieldAshigaru,
+                      mirror: MirrorGuard, duelmaster: Duelmaster };
 
 /* ---------- bosses ----------
    Main bosses render ~2.5-3x normal size with proportionally longer
@@ -973,8 +1094,9 @@ class StormSovereign extends Enemy {
 /* --- elites: gold-marked variants with one affix; the only non-boss honor --- */
 function makeElite(e) {
   e.elite = true;
-  const pool = e instanceof Archer ? ['split', 'swift', 'stoneguard']
-                                   : ['swift', 'aura', 'stoneguard'];
+  const pool = e instanceof Archer ? ['split', 'swift', 'stoneguard', 'surgetouched']
+                                   : ['swift', 'aura', 'stoneguard',
+                                      'surgetouched', 'mirrortouched'];
   e.affix = pool[Math.floor(srandom() * pool.length)];
   e.hp = e.maxHp = Math.round(e.maxHp * 1.4);
   e.dmg = Math.round(e.dmg * 1.15);
@@ -984,6 +1106,8 @@ function makeElite(e) {
     e.postureDrain = 30;
     e.hp = e.maxHp = Math.round(e.maxHp * 1.2);
   }
+  if (e.affix === 'surgetouched') e.ascSurge = true;   // an ultimate of its own
+  // 'mirrortouched' resolves in Enemy.hurt — blocks while posturing
 }
 
 // per-wave stat tuning: difficulty setting × infinite-mode escalation
@@ -1041,7 +1165,7 @@ function updateOrbs(dt) {
     const P = nearestPlayerTo(o.x, o.y);
     const d = dist(o.x, o.y, P.x, P.y);
     // blessing and charm both widen the pull — they stack
-    const magR = 120 * (hasBless('magnet') ? 2 : 1) * (charmed('magnet') ? 2 : 1);
+    const magR = 120 * (1 + blessVal('magnet', 1, 2, 3)) * (charmed('magnet') ? 2 : 1);
     if (d < magR) {          // magnet
       const ang = Math.atan2(P.y - o.y, P.x - o.x);
       const pull = 340 * (1 - d / magR) + 90;

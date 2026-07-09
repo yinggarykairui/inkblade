@@ -1,13 +1,37 @@
 /* ---------- the merchant's ledger (shop) ---------- */
 const shopEl = document.getElementById('shop');
 let lastBought = null;
-let shopTab = 'swords';
+let shopTab = 'armory';   // the armory greets first — the whole ledger at a glance
+// one purchase path for every sold arm — Worn and Pure carry a price;
+// the legendary tier never does (chests keep their crown jewels)
+function buyArm(id) {
+  const it = WEAPONS[id] || BOWS[id];
+  if (!it || !it.price) return false;
+  const list = BOWS[id] ? save.bowsOwned : save.owned;
+  if (list.includes(id) || game.honor < it.price) return false;
+  game.honor -= it.price;
+  save.honor = game.honor;
+  list.push(id);
+  persistSave();
+  playSfx('buy');
+  return true;
+}
+let shopReturn = 'playing';   // the stall can open OVER the death scroll
 function openShop() {
+  shopReturn = game.state === 'gameover' ? 'gameover' : 'playing';
   game.state = 'shop';
   renderShopUI();
   showOverlay('shop');
 }
 function closeShop() {
+  if (shopReturn === 'gameover') {
+    // back to the death scroll — the TRAIN label re-reads the wallet
+    game.state = 'gameover';
+    showOverlay('over');
+    document.getElementById('btnTrainOver').textContent =
+      `修 TRAIN — 誉 ${fmtNum(game.honor)}`;
+    return;
+  }
   showOverlay('none');
   game.state = 'playing';
   // stepping out of the stall portal shouldn't immediately re-trigger it
@@ -59,14 +83,140 @@ const MASTERY_PERKS = {
 };
 function renderShopUI() {
   document.getElementById('shopHonor').textContent = fmtNum(game.honor);
+  document.getElementById('tabArmory').classList.toggle('sel', shopTab === 'armory');
   document.getElementById('tabSwords').classList.toggle('sel', shopTab === 'swords');
   document.getElementById('tabBows').classList.toggle('sel', shopTab === 'bows');
   document.getElementById('tabUpgrades').classList.toggle('sel', shopTab === 'upgrades');
   document.getElementById('tabCharms').classList.toggle('sel', shopTab === 'charms');
-  if (shopTab === 'swords') renderSwords();
+  if (shopTab === 'armory') renderArmory();
+  else if (shopTab === 'swords') renderSwords();
   else if (shopTab === 'bows') renderBows();
   else if (shopTab === 'charms') renderCharms();
   else renderUpgrades();
+}
+/* ---------- 具 the armory: the whole ledger on one scroll ----------
+   Player level, the drawn blade and strung bow (equip in place), the
+   tomb's flats, the cycle — and a short PATH FORWARD for a new hand. */
+function armoryBaseDmg(isBow) {
+  const id = isBow ? save.bowEquipped : game.equipped;
+  const it = isBow ? currentBow() : currentWeapon();
+  return Math.round((it.dmg + rebirthLevel()) * upgDmgMul() * playerLvlMult()
+         * rebirthMult() * rarityMult(id) * wxpMult(id)) + tombAtk();
+}
+function armoryGuidance() {
+  const tips = [];
+  const reborn = rebirthLevel() > 0;
+  // the scroll knows WHO it is advising — a sixth life is not lectured
+  // on what a charm is; a first life is not sent to the tomb altar
+  if (reborn) {
+    if ((save.maxLevelCleared || 0) < 5)
+      tips.push(`cycle ${rebirthLevel()}'s lords await — the maps reset, the records remember`);
+    if (tombSessions() === 0 && save.honor >= 300)
+      tips.push('the cycle burned the tomb’s flats — the tablets will sell them back');
+    if (!save.charmsOwned.length && rebirthLevel() < 5)
+      tips.push('the charms burned with the old life — cycle 5’s Heirloom perk ends that');
+    if ((save.maxLevelCleared || 0) >= 5)
+      tips.push('the road is open again — each walk is another ×1.5, and the lords rise to meet it');
+    tips.push('deep infinite waves and chaos laps bias chests toward 傳 Legendary');
+  } else {
+    if ((save.maxLevelCleared || 0) < 1)
+      tips.push('clear STORY level 1 — the first lord pays honor and opens every road');
+    if (Object.keys(save.upgrades).every(k => !save.upgrades[k]))
+      tips.push('TRAINING tiers are cheap, permanent, and stack under every arm');
+    if (!save.charmsOwned.length)
+      tips.push('a CHARM rides every run — 守 Omamori forgives one killing blow');
+    if (!kyudoRank())
+      tips.push('shoot the 弓道 rite at the training yard — ranks guide every arrow');
+    if (tombSessions() === 0 && save.honor >= 300)
+      tips.push('the TOMB trades honor for flat, permanent stats — press E at a tablet');
+    if ((save.maxLevelCleared || 0) >= 5)
+      tips.push('walk the 転生の道 — the cycle multiplies might & vigor ×1.5, forever');
+    if (!save.deepestWave)
+      tips.push('the ENDLESS STORM pays honor every fifth wave — and drops chests');
+    tips.push('chest duplicates melt into weapon temper — no pull is ever wasted');
+  }
+  return tips.slice(0, 3);
+}
+function armoryRow(kanji, name, bodyHTML, rightHTML) {
+  const row = document.createElement('div');
+  row.className = 'shopItem';
+  const kj = document.createElement('div');
+  kj.className = 'upgKanji'; kj.textContent = kanji;
+  row.appendChild(kj);
+  const info = document.createElement('div');
+  info.className = 'si-info';
+  info.innerHTML = `<div class="si-name">${name}</div>` + bodyHTML;
+  row.appendChild(info);
+  const right = document.createElement('div');
+  right.className = 'si-right';
+  if (rightHTML) right.innerHTML = rightHTML;
+  row.appendChild(right);
+  shopEl.appendChild(row);
+  return row;
+}
+function armoryEquipRow(row, isBow) {
+  // owned arms as kanji buttons — equip without leaving the armory
+  const wrap = document.createElement('div');
+  wrap.className = 'upgPips';
+  wrap.style.marginTop = '6px';
+  const order = isBow ? BOW_ORDER : WEAPON_ORDER;
+  const list = isBow ? save.bowsOwned : save.owned;
+  for (const id of order) {
+    if (!list.includes(id)) continue;
+    const it = isBow ? BOWS[id] : WEAPONS[id];
+    const b = document.createElement('button');
+    const cur = isBow ? save.bowEquipped === id : game.equipped === id;
+    b.className = 'lvlBtn' + (cur ? ' sel' : '');
+    b.textContent = it.kanji;
+    b.title = `${it.name} — ${it.epithet}`;
+    b.onclick = () => {
+      if (isBow) save.bowEquipped = id;
+      else { game.equipped = id; save.equipped = id; game.ameStacks = 0; }
+      persistSave();
+      renderShopUI();
+    };
+    wrap.appendChild(b);
+  }
+  row.children[1].appendChild(wrap);
+}
+function renderArmory() {
+  shopEl.innerHTML = '';
+  // 位 the player's own level
+  const p = save.playerXP || { xp: 0, lvl: 0 };
+  armoryRow('位', `PLAYER LEVEL ${p.lvl}`,
+    `<div class="si-desc">every level is <b>+0.5% might</b> on blade and bow — ` +
+    `felled foes feed it, bosses tenfold, and it survives every rebirth</div>` +
+    `<div class="si-desc">${fmtNum(p.xp)}/${fmtNum(xpForPlayerLvl(p.lvl))} xp to level ${p.lvl + 1}` +
+    ` · currently ×${playerLvlMult().toFixed(3)}</div>`);
+  // 刀 the drawn blade
+  const w = currentWeapon();
+  const bladeRow = armoryRow(w.kanji, `${w.name} — “${w.epithet}”`,
+    `<div class="si-desc">temper L${wxpLvl(game.equipped)}/${rarityOf(game.equipped).cap}` +
+    ` · ${rarityOf(game.equipped).kanji} ${rarityOf(game.equipped).name}</div>` +
+    `<div class="si-desc">swap the drawn blade:</div>`,
+    `<span class="si-cost">base damage<br><b style="font-size:26px;">${fmtNum(armoryBaseDmg(false))}</b></span>`);
+  armoryEquipRow(bladeRow, false);
+  // 弓 the strung bow
+  const bo = currentBow();
+  const bowRow = armoryRow(bo.kanji, `${bo.name} — “${bo.epithet}”`,
+    `<div class="si-desc">temper L${wxpLvl(save.bowEquipped)}/${rarityOf(save.bowEquipped).cap}` +
+    ` · 弓道 rank ${kyudoRank()}/10</div>` +
+    `<div class="si-desc">string a different bow:</div>`,
+    `<span class="si-cost">arrow damage<br><b style="font-size:26px;">${fmtNum(armoryBaseDmg(true))}</b></span>`);
+  armoryEquipRow(bowRow, true);
+  // 墓 + 転生 the permanent ledger
+  armoryRow('墓', 'THE TOMB’S FLATS',
+    `<div class="si-desc">刃 +${tombAtk()} attack · 体 +${tombHp()} health · 姿 +${tombPosture()} posture` +
+    ` — flat, permanent, bought at the tomb’s tablets</div>`);
+  armoryRow('転', `REBIRTH — CYCLE ${rebirthLevel()}`,
+    `<div class="si-desc">might &amp; vigor ×${rebirthMult().toFixed(2)}` +
+    ` · 昇 ascension stones held: <b>${save.ascStones || 0}</b></div>` +
+    `<div class="si-desc">the 転生の道 asks one stone (rare, chests only) — and each` +
+    ` cycle its lords surge, harden, and bring their retinue: the road is won` +
+    ` by hands, not numbers</div>`);
+  // 導 the path forward — what a new hand should do next
+  armoryRow('導', 'THE PATH FORWARD',
+    armoryGuidance().map(tip => `<div class="si-desc">• ${tip}</div>`).join(''));
 }
 // the bow rack — same unlock pattern as the blades: honor buys, levels gate
 function drawBowIcon(canvas, bow) {
@@ -132,6 +282,16 @@ function renderBows() {
         };
         right.appendChild(btn);
       }
+    } else if (b0.price) {
+      const b = document.createElement('button');
+      b.textContent = `BUY 誉 ${fmtNum(b0.price)}`;
+      if (game.honor < b0.price) b.disabled = true;
+      else b.onclick = () => { if (buyArm(id)) { lastBought = id; renderShopUI(); } };
+      right.appendChild(b);
+      const tag = document.createElement('div');
+      tag.className = 'si-cost';
+      tag.textContent = `${rarityOf(id).kanji} ${rarityOf(id).name} — or found in chests`;
+      right.appendChild(tag);
     } else {
       const rar = rarityOf(id);
       right.innerHTML = `<span class="si-cost">${rar.kanji} ${rar.name} — sealed in chests</span>`;
@@ -285,8 +445,19 @@ function renderSwords() {
         };
         right.appendChild(b);
       }
+    } else if (w.price) {
+      // Worn and Pure blades are sold outright — chests remain the shortcut
+      const b = document.createElement('button');
+      b.textContent = `BUY 誉 ${fmtNum(w.price)}`;
+      if (game.honor < w.price) b.disabled = true;
+      else b.onclick = () => { if (buyArm(id)) { lastBought = id; renderShopUI(); } };
+      right.appendChild(b);
+      const tag = document.createElement('div');
+      tag.className = 'si-cost';
+      tag.textContent = `${rarityOf(id).kanji} ${rarityOf(id).name} — or found in chests`;
+      right.appendChild(tag);
     } else {
-      // blades are no longer bought — they are FOUND. Chests only.
+      // the legendary tier is never sold — the reel keeps its crown jewels
       const rar = rarityOf(id);
       right.innerHTML = `<span class="si-cost">${rar.kanji} ${rar.name} — sealed in chests</span>`;
     }
@@ -355,6 +526,7 @@ function renderRecords() {
     `<div>tomb steps: <b>${((save.tomb.body || 0) + (save.tomb.stance || 0) + (save.tomb.edge || 0)).toFixed(1)}/30</b></div>` +
     `<div>弓道 archery rank: <b>${(save.kyudo && save.kyudo.rank) || 0}/10${save.kyudo && save.kyudo.best ? ' · best ' + save.kyudo.best : ''}</b></div>` +
     `<div>転生 rebirths: <b>${rebirthLevel()}${rebirthLevel() ? ' · ×' + rebirthMult().toFixed(2) : ''}</b></div>` +
+    `<div>位 player level: <b>${playerLvl()}</b>${playerLvl() ? ' · ×' + playerLvlMult().toFixed(3) : ''}</div>` +
     `<div>favorite blade: <b>${fav && WEAPONS[fav] ? WEAPONS[fav].name + ' · ' + favN : '—'}</b></div>` +
     `<div>stamps: <b>${save.achievements.length}/${ACHIEVEMENTS.length}</b></div>`;
   const wall = document.getElementById('stampWall');
@@ -390,9 +562,13 @@ function renderRebirth() {
   document.getElementById('rebirthStatus').innerHTML =
     `cycle <b>${lvl}</b> · might &amp; vigor <b>×${rebirthMult().toFixed(2)}</b>` +
     ` · next cycle <b>×${Math.pow(1.5, lvl + 1).toFixed(2)}</b>` +
+    ` · 昇 ascension stones held: <b>${save.ascStones || 0}</b>` +
     `<br>the cycle is not granted — it is <b>walked</b>: 転生の道, the five lords` +
-    ` back to back, <b>risen to match your might</b>. Fell them all and everything` +
-    ` burns but the arsenal and the records. Fall, and nothing is lost.`;
+    ` back to back. Each cycle they stand harder, <b>erupt into 奥 surges at half` +
+    ` health</b> (crack their posture to snuff it), and bring their <b>retinue</b>:` +
+    ` mirror guards no edge can cut and duelmasters only a parry stops.` +
+    ` The road asks a toll: <b>one 昇 ascension stone</b> (a rare gleam in` +
+    ` lacquer chests), paid only at the far end — a failed walk wastes nothing.`;
   const wall = document.getElementById('rebirthPerks');
   wall.innerHTML = '';
   for (const p of REBIRTH_PERKS) {
@@ -405,10 +581,12 @@ function renderRebirth() {
   }
   const btn = document.getElementById('btnRebirth');
   const walking = game.mode === 'ascension' && rebirthReturn === 'playing';
-  btn.disabled = walking;
+  const noStone = !(save.ascStones > 0);
+  btn.disabled = walking || noStone;
   btn.textContent = rebirthArmed ? '転生の道 — WALK THE ROAD' : 'BE REBORN';
   document.getElementById('rebirthMsg').textContent =
     walking ? 'you are already on the road — the lords are waiting'
+      : noStone ? 'the road asks its toll — 昇 an ascension stone, a rare gleam in lacquer chests'
       : (rebirthArmed ? 'spoken again, the road opens — five lords bar the way' : '');
 }
 function openRebirth() {
@@ -425,6 +603,7 @@ function closeRebirth() {
 }
 document.getElementById('btnRebirthClose').onclick = closeRebirth;
 document.getElementById('btnRebirth').onclick = () => {
+  if (!(save.ascStones > 0)) { renderRebirth(); return; }   // the toll is law
   if (!rebirthArmed) { rebirthArmed = true; renderRebirth(); return; }
   // the confirmation opens the ROAD, not the cycle — the cycle is earned
   // at the far end of five lords (ascensionComplete → doRebirth)
@@ -773,6 +952,7 @@ function renderMenu() {
 
 document.getElementById('btnStart').onclick = beginRun;
 document.getElementById('btnRestart2').onclick = retryRun;
+document.getElementById('btnTrainOver').onclick = openShop;
 document.getElementById('btnMenu').onclick = returnToMenu;
 document.getElementById('btnMerchantMenu').onclick = () => startRun('merchant');
 document.getElementById('btnTraining').onclick = () => startRun('training');
@@ -781,6 +961,7 @@ document.getElementById('btnShopClose').onclick = closeShop;
 document.getElementById('btnShrineSkip').onclick = closeShrine;
 document.getElementById('btnResume').onclick = resumeGame;
 document.getElementById('btnAbandon').onclick = returnToMenu;
+document.getElementById('tabArmory').onclick = () => { shopTab = 'armory'; renderShopUI(); };
 document.getElementById('tabSwords').onclick = () => { shopTab = 'swords'; renderShopUI(); };
 document.getElementById('tabBows').onclick = () => { shopTab = 'bows'; renderShopUI(); };
 document.getElementById('tabUpgrades').onclick = () => { shopTab = 'upgrades'; renderShopUI(); };

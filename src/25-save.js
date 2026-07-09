@@ -65,6 +65,8 @@ function defaultSave() {
     seenHints: [],            // one-shot in-fight teaching, each fired once ever
     kyudo: { rank: 0, best: 0 },   // 弓道 archery rite — trained bow skill
     rebirth: { level: 0 },         // 転生 — the only exponential the player owns
+    playerXP: { xp: 0, lvl: 0 },   // 位 player level — playing itself pays
+    ascStones: 0,                  // 昇 ascension stones — the road's toll
   };
 }
 let save = defaultSave();
@@ -89,6 +91,16 @@ function applySaveData(d) {
   save.mouseAim = !!save.mouseAim;   // additive — old saves default off
   save.kyudo = Object.assign({ rank: 0, best: 0 }, d.kyudo);
   save.rebirth = Object.assign({ level: 0 }, d.rebirth);
+  save.playerXP = Object.assign({ xp: 0, lvl: 0 }, d.playerXP);
+  save.ascStones = Math.max(0, d.ascStones | 0);
+  // grandfather the veterans: a save from before player levels existed
+  // seeds its level ONCE from lifetime kills — hours already served count
+  if (!d.playerXP && save.stats.kills > 0) {
+    const p = save.playerXP;
+    let xp = save.stats.kills * 2;
+    while (xp >= xpForPlayerLvl(p.lvl)) { xp -= xpForPlayerLvl(p.lvl); p.lvl++; }
+    p.xp = xp;
+  }
   if (!Array.isArray(save.owned) || !save.owned.includes('tetsu')) save.owned = ['tetsu'];
   // bows arrived later — old saves get the starter quiver for free
   if (!Array.isArray(save.bowsOwned) || !save.bowsOwned.includes('shortbow'))
@@ -232,6 +244,8 @@ function doRebirth() {
     highScores: save.highScores, deepestWave: save.deepestWave,
     bestRushTime: save.bestRushTime, bestChaosStage: save.bestChaosStage,
     kyudo: save.kyudo, headband: save.headband,
+    playerXP: save.playerXP,   // the hand's own skill crosses every cycle
+    ascStones: save.ascStones, // spare stones survive (the walk consumed one)
     recCycles: save.recCycles,
     adminUnlocked: save.adminUnlocked,
     audio: save.audio, shakeMul: save.shakeMul,
@@ -305,6 +319,29 @@ const ACHIEVEMENTS = [
   { id: 'legend',      kanji: '傳',   name: 'A Legend Unsealed',    desc: 'pull a legendary arm from a chest' },
   { id: 'tombTen',     kanji: '墓',   name: 'The Path Walked',      desc: 'walk a tomb track to its 10× end' },
 ];
+/* ---------- 位 player level — the hand that keeps playing sharpens ----
+   XP flows from felled foes (bosses pay tenfold); thresholds climb
+   geometrically (×1.18) so the curve pays fast early and asymptotes
+   late. Each level is +0.5% might — a BOUNDED multiplier riding inside
+   the vertical chain, never a runaway flat. Survives the rebirth cycle
+   (it is the player's own hand, not the character's ledger). Never in
+   duels.                                                              */
+function playerLvl() { return (save.playerXP && save.playerXP.lvl) || 0; }
+function playerLvlMult() { return 1 + .005 * playerLvl(); }
+function xpForPlayerLvl(k) { return Math.round(40 * Math.pow(1.18, k)); }
+function grantPlayerXP(amt) {
+  if (game.mode === 'duel' || !(amt > 0)) return;
+  const p = save.playerXP = save.playerXP || { xp: 0, lvl: 0 };
+  p.xp += amt;
+  while (p.xp >= xpForPlayerLvl(p.lvl)) {
+    p.xp -= xpForPlayerLvl(p.lvl);
+    p.lvl++;
+    setBanner(`位 PLAYER LEVEL ${p.lvl} — the hand remembers (+0.5% might)`, 2.4);
+    playSfx('achieve');
+    persistSave();
+  }
+}
+
 /* ---------- one-shot teaching ----------
    The lobby teaches nothing; the blade explains itself at the moment a
    thing first matters. Each hint fires ONCE per save, ever. Sim-driven

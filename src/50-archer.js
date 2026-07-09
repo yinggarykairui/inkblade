@@ -130,9 +130,10 @@ function playerLooseArrow(bow, heldT, pl) {
   pl.st = Math.max(0, pl.st - bow.stCost * stamMul);
   pl.regenDelay = .6;
   const dmgMul = (pl.p2 ? 1 + .15 * (pl.resolve || 0)   // 志 resolve stacks
-                 : upgDmgMul() * (charmed('oni') ? 1.2 : 1) * rebirthMult()
+                 : upgDmgMul() * playerLvlMult()
+                   * (charmed('oni') ? 1.2 : 1) * rebirthMult()
                    * rarityMult(bow.id) * wxpMult(bow.id))
-               * (weak ? .55 : 1) * (hasBless('edge') ? 1.1 : 1);
+               * (weak ? .55 : 1) * (1 + blessVal('edge', .10, .18, .26));
   const baseDmg = pl.p2 ? bow.dmg : bow.dmg + rebirthLevel();
   // repeater: every release is a burst; stormbow: a FULL draw splits in three
   const n = bow.burst || (bow.split && power >= .95 ? bow.split : 1);
