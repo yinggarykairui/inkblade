@@ -518,3 +518,123 @@ punish low stamina harder.
 ## Suggested next ideas (not committed)
 Estate/base-building siege mode; leaderboard-free score sharing via save
 scroll; more charms; a second legendary blade earned from chaos stage 15+.
+
+---
+
+## 2026-07-08c — DESIGN-AUDIT PATCH (balance, exploits, features, UX)
+
+Implemented from the full-systems audit, in dependency order. Verify with
+`node build.js && node harness.js` (`harness.js` is new — 26 assertions
+covering everything below; extend it, don't delete it).
+
+**Exploit fixes:** shrine offerings roll ONCE at `spawnShrine` (seeded
+stream — no close/reopen re-rolls, lockstep-identical); tomb breath needs
+an M keydown EDGE after phase entry + random needle phase (held-M no
+longer banks a guaranteed-perfect step); chest keys are consumed only when
+they actually upgrade a worn roll; kills/mastery credit the TRUE killing
+arm via `hurt(..., src, arm)` → `lastHitArm` (bow kills temper the bow;
+P2 kills grant P1 nothing); dead weapon-economy fields
+(`cost`/`unlockLevel`/`weaponUnlocked`/`purchasedCount`) removed.
+
+**Economy core:** `tombAtk()` now lands AFTER the damage multiplier chain
+(melee + arrows) — truly flat, never rides rarity/temper/surge;
+`tombCost` is geometric `300 × 1.5^S` (matches the tomb comment, closes
+the linear-cost/exponential-income exploit). The 20-data BALANCE IDENTITY
+header was rewritten to the honest curve: player ×~104 multiplicative per
+cycle vs world ×942; rebirth (×1.5 vs world's ×1.08/cycle) closes the gap
+around cycle 6–7.
+
+**Rebalance:** Ame posture 13→11; Botan clean-state ignores chip hits
+≤5% maxHp; curse honor bonuses repriced (Rooted 1.0→.75, Reversed
+.5→1.0); PvE single hits capped at 40% of maxHp ("three mistakes, never
+one"); `game.combo` decays after 4 idle seconds (`game.lastComboAt`);
+`refreshPlayerStats` now respects The Glass.
+
+**Features:** 奥義 ARTS fire from cycle 0 — the first rebirth now unlocks
+the INK SURGE that follows them (HUD label + rebirth perk 1 updated);
+every 3rd shrine per run is a BARGAIN shrine (blessing fused to a curse,
+both sims resolve the pair from their identical seeded picks — wire
+protocol unchanged); co-op P2 gains 志 resolve on each boss death
+(+15% dmg, +15 maxHp per stack, cap 10 — run-scoped sim state, never a
+save write).
+
+**UX:** pause overlay shows a full controls card (`.ctrls` CSS); one-time
+mouse-aim discovery banner (`save.mouseHinted`); rebirth gate accepts
+story level 5 OR map-5 stage 10 (`rebirthGateOpen()`); death screen names
+the killer (`game.lastHitDesc`, threaded as `damageSamurai`'s 5th arg +
+`Enemy.foeName()`); adaptive windup-stretch announces itself with a 読
+glint; bow shop tooltips state the homing cone.
+
+## 2026-07-08d — CHEST EXPANSION: per-mode drops + carousel reveal
+
+Chests now fall in EVERY mode (see the spawn-rules comment atop the chest
+block in 45-hazards): story first-clears guarantee a lord-biased chest
+(25% on revisits); campaign stages 18%+1.5%/stage; infinite 5th-wave
+lords 40% with a guaranteed chest every 25th wave and tier bias
+`min(2, wave/20)`; gauntlet lords 1–4 30%; chaos every 5th stage
+guaranteed (bias climbs by lap), else 15%. All spawn dice ride the SIM
+stream (srandom) so online co-op sims agree. `openChest`'s tier-table
+base is now mode-aware (campaign by map, story by level, endless modes
+speak only through the bias arg) — it no longer reads a stale `game.map`.
+
+The reveal is a horizontal CAROUSEL (`REEL` consts + `reelCenterAt` in
+45-hazards, drawn in 90-render): the arsenal streams past a gold marker,
+ease-out cubic, per-tile tick sfx, and the landing tile is the pull —
+filler tiles are cosmetic (crand). The chest burst is now NEUTRAL (宝, no
+tier color) and the naming banner + tier sfx fire only when the reel
+rests (deferred via `updateChests` — sim-side, lockstep-safe). Ownership,
+XP, awards and persistence still land instantly in `openChest`; only the
+THEATER is delayed. Harness: 32 assertions.
+
+## 2026-07-08e — FIRST-HOUR DECLUTTER + 転生の道 THE ROAD OF REBIRTH
+
+**Title screen** (index.template.html): the nine-chip key legend is GONE —
+one quiet line (`WASD move · V slash — the rest is taught in play; full
+scroll on Esc`); BEGIN is the lone hero button (`始 BEGIN — Enter`, the
+"press Enter" hint folded in); the six meta doors are now small ghost
+links in `.metaRow`, gated by save state: tomb hides until 300+ honor (or
+a tomb step / a cycle), rebirth hides until the first lord falls,
+merchant as before.
+
+**One-shot teaching** (`hintOnce` in 25-save, `save.seenHints`): five
+hints, each fired ONCE per save at the moment of need — first enemy
+windup → roll; first perfect dodge → parry; first empty lungs → meditate;
+first full 奥義 meter → R; first cleared wave → bow stance. Never in
+duels; sim-driven triggers, banner delivery, lockstep-safe.
+
+**転生の道 — rebirth is now EARNED, not clicked**: `rebirthGateOpen` is
+gone; the scroll's double-confirm launches `startRun('ascension')` — the
+five story lords back to back in their arenas. `ascensionMults()` raises
+lord HP to track the player's own ×1.5^cycle (dmg ×1.22^cycle, the 40%
+hit cap still holds), so every walk fights like the first; cycle 1+
+remixes the whole road and the final gate is always the Ascendant
+Sovereign. Clearing lord 5 → `ascensionComplete()` → `doRebirth()` (now
+gateless — the road IS the gate) → dojo gate + cycle banner. Falling
+costs nothing. Lords 1–4 drop lord-biased chests at 30%. Harness: 40
+assertions.
+
+## 2026-07-08f — FIXTURE STACKING FIX (stall buried a chest)
+
+Two-part fix for overlapping wayside fixtures: (1) `clearSpot(x, y)` in
+45-hazards nudges any new fixture ≥115px clear of the portal, stall,
+shrine and unopened chests (sim-stream dice, lockstep-safe) — applied in
+`rollChest`, `spawnPortal`, `spawnShrine` and every merchant placement in
+65-run. (2) `tryInteract` is now NEAREST-FIRST: all in-range candidates
+(stall/shrine/chests/tomb stones/kyudo stand) are collected and the
+closest one answers E — fixed priority order is gone, so even a forced
+overlap can't shadow a chest. Harness: 42 assertions.
+
+## 2026-07-08g — 掛軸 MENU PAINTINGS + PHYSICAL SCROLL PANELS
+
+`brushLandscape()` / `brushParchmentTile()` (end of 10-dom): procedural
+sumi-e hanging scrolls brushed at boot on offscreen canvases (cosmetic
+dice only, try/catch-guarded for the headless harness) — silk brocade
+mount, six misted ridges with dry-brush texture, crest trees w/ autumn
+embers, a pagoda silhouette, a waterfall thread, a two-column
+calligraphy inscription, the red artist's seal, and baked-in lacquer
+dowels. Two DIFFERENT paintings are hung as CSS backgrounds flanking
+the panel on title/records/settings/rebirth overlays (injected <style>
+with data URLs). Every .panel now carries a parchment-grain tile +
+inset age vignette; the rollers grew to 22px with wood grain, lacquer
+sheen and gold-ringed turned-wood end knobs protruding past the paper
+(matching the pixel-scroll reference).

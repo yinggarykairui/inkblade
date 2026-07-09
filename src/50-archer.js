@@ -35,7 +35,9 @@ function updateProjectiles(dt) {
         playSfx('parry');
       } else if (P.iT <= 0) {
         const ang = Math.atan2(p.vy, p.vx);
-        if (damageSamurai(P, p.dmg || 9, ang, p.kind === 'charged')) {
+        if (damageSamurai(P, p.dmg || 9, ang, p.kind === 'charged',
+              p.kind === 'charged' ? 'a charged shot'
+              : p.kind === 'bolt' ? 'storm lightning' : 'an arrow')) {
           p.dead = true;
           if (p.chain) {   // storm-touched: the shot discharges on impact
             boltFX(p.x - p.vx * .06, p.y - p.vy * .06, P.x, P.y);
@@ -127,17 +129,18 @@ function playerLooseArrow(bow, heldT, pl) {
   const weak = exhaustedOf(pl) || game.curses.includes('winded');
   pl.st = Math.max(0, pl.st - bow.stCost * stamMul);
   pl.regenDelay = .6;
-  const dmgMul = (pl.p2 ? 1
+  const dmgMul = (pl.p2 ? 1 + .15 * (pl.resolve || 0)   // 志 resolve stacks
                  : upgDmgMul() * (charmed('oni') ? 1.2 : 1) * rebirthMult()
                    * rarityMult(bow.id) * wxpMult(bow.id))
                * (weak ? .55 : 1) * (hasBless('edge') ? 1.1 : 1);
-  const flatDmg = pl.p2 ? bow.dmg : bow.dmg + tombAtk() + rebirthLevel();
+  const baseDmg = pl.p2 ? bow.dmg : bow.dmg + rebirthLevel();
   // repeater: every release is a burst; stormbow: a FULL draw splits in three
   const n = bow.burst || (bow.split && power >= .95 ? bow.split : 1);
   for (let i = 0; i < n; i++) {
     const fan = !bow.burst && n > 1 ? (i - (n - 1) / 2) * .2 : 0;
+    // the tomb's flat attack lands AFTER the multipliers, same law as the blade
     spawnPArrow(pl, false, bow, pl.face + fan,
-      Math.max(1, Math.round(flatDmg * power * dmgMul)),
+      Math.max(1, Math.round(baseDmg * power * dmgMul) + (pl.p2 ? 0 : tombAtk())),
       bow.speed * (.7 + .3 * power),
       bow.burst ? i * .09 : 0);
   }
@@ -237,7 +240,7 @@ function updatePArrows(dt) {
           const blocked = e.shielded && e.brokenT <= 0 &&
             Math.abs(angDiff(e.face, e.angTo())) < 1.15;
           e.hurt(Math.max(1, Math.round(a.dmg * (pb ? .5 : 1))),
-                 Math.atan2(a.vy, a.vx), undefined, 6);
+                 Math.atan2(a.vy, a.vx), undefined, 6, a.owner || player, a.bowId);
           fx('arrowImpact', { owner: a.owner, x: a.x, y: a.y,
                               ang: Math.atan2(a.vy, a.vx), bowId: a.bowId });
           if (!(a.owner && a.owner.p2)) {   // P2 is progression-free
@@ -283,7 +286,8 @@ function updateBurnZones(dt) {
         for (const e of enemies) {
           if (e.dead || e.state === 'spawn') continue;
           if (dist(e.x, e.y, b.x, b.y) < b.r + e.r * .4) {
-            e.hurt(4, Math.atan2(e.y - b.y, e.x - b.x), undefined, 3);
+            e.hurt(4, Math.atan2(e.y - b.y, e.x - b.x), undefined, 3,
+                   b.owner || player, 'firebow');
             fx('burn', { x: e.x, y: e.y });
           }
         }

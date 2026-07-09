@@ -127,8 +127,8 @@ function castFire() {
     if (inArc(player.x, player.y, player.face, range + e.r, arc, e.x, e.y, e.r)) {
       const ang = Math.atan2(e.y - player.y, e.x - player.x);
       // small foes are unwritten outright; brutes merely burn
-      if (e instanceof Brute) e.hurt(45, ang, .45);
-      else e.hurt(9999, ang);
+      if (e instanceof Brute) e.hurt(45, ang, .45, 8, player, 'fudemaru');
+      else e.hurt(9999, ang, undefined, 8, player, 'fudemaru');
     }
   }
   for (let i = 0; i < 26; i++) {
@@ -187,7 +187,8 @@ function updateStorm(dt) {
     const e = storm.targets[storm.idx++];
     if (e && !e.dead) {
       boltFX(storm.from.x, storm.from.y, e.x, e.y);
-      e.hurt(24, Math.atan2(e.y - storm.from.y, e.x - storm.from.x), .45);
+      e.hurt(24, Math.atan2(e.y - storm.from.y, e.x - storm.from.x), .45, 8,
+             player, 'fudemaru');
       storm.from = { x: e.x, y: e.y };
       shake(2); freeze(.02);
     }

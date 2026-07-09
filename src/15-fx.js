@@ -69,7 +69,7 @@ function chainLightning(x, y, hops = 1) {
     glow ? undefined : 'rgba(240,238,232,.95)');
   addText(best.x, best.y - best.r - 14, 'shock!',
     glow ? '#5b78c9' : 'rgba(43,35,32,.7)', 13);
-  best.hurt(14, Math.atan2(best.y - y, best.x - x), .45, 8);
+  best.hurt(14, Math.atan2(best.y - y, best.x - x), .45, 8, player, 'raiko');
   freeze(.04); shake(3);
   if (hops > 1) chainLightning(best.x, best.y, hops - 1);
 }

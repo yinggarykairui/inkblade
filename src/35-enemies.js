@@ -54,6 +54,11 @@ class Enemy {
     if (l < 2) return;
     this.x += dx / l * sp * dt; this.y += dy / l * sp * dt;
   }
+  foeName() {   // how the death scroll speaks of this foe
+    if (this.bossName) return this.bossName;
+    const n = this.constructor.name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+    return (this.elite ? 'an elite ' : 'a ') + n;
+  }
   grabToken() {
     if (this.hasToken) return true;
     if (this.tokenPool().request(this)) { this.hasToken = true; return true; }
@@ -87,7 +92,8 @@ class Enemy {
           if (dist(this.x, this.y, P.x, P.y) >= 64 + P.r) continue;
           this.auraTick = .9;
           if (damageSamurai(P, Math.max(2, Math.round(3 * game.curDmgMul)),
-                            Math.atan2(P.y - this.y, P.x - this.x), false))
+                            Math.atan2(P.y - this.y, P.x - this.x), false,
+                            'a searing aura'))
             addText(P.x, P.y - 40, 'seared!', RED, 11);
         }
       }
@@ -146,9 +152,12 @@ class Enemy {
       if (this.hp <= 0) this.die();
     }
   }
-  hurt(dmg, ang, stun, pDmg = 8, src) {
+  hurt(dmg, ang, stun, pDmg = 8, src, arm) {
     if (this.dead || this.state === 'spawn') return;
-    if (src) this.lastHitBy = src;   // co-op: remember whose steel bit last
+    if (src) {
+      this.lastHitBy = src;      // co-op: remember whose steel bit last
+      this.lastHitArm = arm;     // …and WHICH arm — kills credit the true weapon
+    }
     // shield ashigaru: frontal blows are turned aside — flank it or break it
     if (this.shielded && this.brokenT <= 0 &&
         Math.abs(angDiff(this.face, this.angTo())) < 1.15) {
@@ -188,9 +197,12 @@ class Enemy {
     save.stats.kills++;
     addUlt(8);   // a felled foe feeds the 奥義 meter
     const killer = this.lastHitBy || player;
+    // credit the arm that actually landed the killing blow — a stormbow
+    // kill tempers the stormbow, never the sword resting in the other hand
+    const arm = this.lastHitArm || game.equipped;
     if (!killer.p2) {   // the second blade is progression-free
-      save.stats.bladeKills[game.equipped] = (save.stats.bladeKills[game.equipped] || 0) + 1;
-      grantWeaponXP(game.equipped, this.isBoss ? 40 : 2);   // kills sharpen the blade
+      save.stats.bladeKills[arm] = (save.stats.bladeKills[arm] || 0) + 1;
+      grantWeaponXP(arm, this.isBoss ? 40 : 2);   // kills sharpen the arm used
     }
     award('firstBlood');
     if (hasBless('reap'))   // the reaper's rhythm — stamina back on every kill
@@ -205,8 +217,10 @@ class Enemy {
     if (this.isBoss) {
       spawnHonorOrbs(this.x, this.y, Math.round(this.honorKill * game.honorMult));
       game.lastBossDeath = { x: this.x, y: this.y };
-      // sword mastery: lords felled while a blade is drawn temper it
-      if (game.equipped !== 'fudemaru') {
+      // sword mastery: the lord must fall to P1's OWN drawn blade — a bow
+      // kill or the second samurai's steel teaches this sword nothing
+      if (game.equipped !== 'fudemaru' && !killer.p2 && arm === game.equipped
+          && WEAPONS[arm]) {
         save.mastery[game.equipped] = (save.mastery[game.equipped] || 0) + 1;
         if (save.mastery[game.equipped] === 5) {
           setBanner('極 ' + WEAPONS[game.equipped].name + ' — MASTERED', 2.6);
@@ -258,8 +272,17 @@ class Enemy {
   }
   enter_windup(opts) {
     opts = opts || {};
+    let stretch = 0;
+    if (opts.dur === undefined && !opts.noDelay) stretch = adapt.extraDelay();
     this.wDur = opts.dur !== undefined ? opts.dur
-      : this.windupBase / eAggro() + (opts.noDelay ? 0 : adapt.extraDelay());
+      : this.windupBase / eAggro() + stretch;
+    // the adaptive layer plays fair in the open: a stretched windup — its
+    // counter to habitual reaction-dodgers — announces itself with a glint
+    if (stretch > 0)
+      addText(this.x, this.y - this.r - 26, '読', 'rgba(93,127,156,.85)', 12);
+    // the very first raised weapon teaches the roll
+    if (!this.ghost)
+      hintOnce('roll', 'Shift — roll THROUGH the red arc as it falls');
     this.isFeint = opts.feint || false;
     adapt.windups++;
   }
@@ -298,11 +321,12 @@ class Enemy {
           // too much iron behind it — the guard is crushed, dodge these
           this.didHit = true;
           P.action = null;
-          if (damageSamurai(P, Math.max(1, Math.round(this.dmg * .5)), angP, true))
+          if (damageSamurai(P, Math.max(1, Math.round(this.dmg * .5)), angP, true,
+                            this.foeName()))
             addText(P.x, P.y - 42, 'crushed!', RED, 13);
         } else this.getParried(P);
       } else if (P.iT <= 0) {
-        this.didHit = damageSamurai(P, this.dmg, angP, this.heavy);
+        this.didHit = damageSamurai(P, this.dmg, angP, this.heavy, this.foeName());
       }
     }
     if (this.stateT >= this.activeDur) { this.dropToken(); this.setState('recover'); }
@@ -612,7 +636,8 @@ class TombGhost extends Enemy {
         return;
       } else if (!player.dodgeInv && player.iT <= 0) {
         this.didHit = true;
-        damagePlayer(Math.max(3, Math.round(player.maxHp * .06)), this.angTo(), false);
+        damagePlayer(Math.max(3, Math.round(player.maxHp * .06)), this.angTo(), false,
+                     'a tomb flicker');
         tombGhostDown(false);
         this.die();
         return;
@@ -970,6 +995,16 @@ function tuneEnemy(e, m) {
   if (e.arrowDmg) e.arrowDmg = Math.round(e.arrowDmg * m.dmg);
 }
 function onBossDeath(b) {
+  // 二人 resolve: each fallen lord steels the second blade — run-scoped
+  // sim state (never a save write, lockstep-safe), +15% might and +15
+  // health per lord, capped at ten. P2 finally has a ladder to climb
+  // inside the run the world keeps escalating.
+  if (game.coop && p2 && p2.resolve < 10) {
+    p2.resolve = (p2.resolve || 0) + 1;
+    p2.maxHp += 15;
+    p2.hp = Math.min(p2.maxHp, p2.hp + 15);
+    addText(p2.x, p2.y - 32, `志 resolve ${p2.resolve} — the lord remembers`, GOLD, 13);
+  }
   shake(10); freeze(.12);
   inkSplat(b.x, b.y);
   spawnPetals(b.x, b.y, 10, 'wash', null);   // the lord falls in ink, not pigment
@@ -1051,7 +1086,8 @@ function updateShockwaves(dt) {
             onPerfectDodge(P);
           }
         } else if (P.iT <= 0) {
-          damageSamurai(P, s.dmg, Math.atan2(P.y - s.y, P.x - s.x), true);
+          damageSamurai(P, s.dmg, Math.atan2(P.y - s.y, P.x - s.x), true,
+                        'the earthbreaker ring');
         }
       }
     }

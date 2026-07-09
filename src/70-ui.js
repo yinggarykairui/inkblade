@@ -114,6 +114,7 @@ function renderBows() {
         (wxpOf(id).lvl >= rarityOf(id).cap ? ' — fully tempered'
           : ` · ${fmtNum(wxpOf(id).xp)}/${fmtNum(xpForLevel(wxpOf(id).lvl))} xp`) +
         ` · ×${(rarityMult(id) * wxpMult(id)).toFixed(1)}</div>` : '') +
+      `<div class="si-desc"><i>導 shafts gently seek a foe within ${Math.round(15 + kyudoRank() * 1.5)}° of their line — 弓道 ranks widen the eye (never in duels)</i></div>` +
       `<div class="si-desc"><i>Q strings the bow in any trial; hold V to draw, release to loose.</i></div>`;
     row.appendChild(info);
     const right = document.createElement('div');
@@ -386,13 +387,12 @@ let rebirthReturn = 'title';
 let rebirthArmed = false;
 function renderRebirth() {
   const lvl = rebirthLevel();
-  const gateOpen = (save.maxLevelCleared || 0) >= 5;
   document.getElementById('rebirthStatus').innerHTML =
     `cycle <b>${lvl}</b> · might &amp; vigor <b>×${rebirthMult().toFixed(2)}</b>` +
     ` · next cycle <b>×${Math.pow(1.5, lvl + 1).toFixed(2)}</b>` +
-    `<br>${gateOpen
-      ? 'the fifth lord has fallen — the altar will answer'
-      : 'the altar is silent — <b>slay the fifth lord</b> of the story to open the cycle'}`;
+    `<br>the cycle is not granted — it is <b>walked</b>: 転生の道, the five lords` +
+    ` back to back, <b>risen to match your might</b>. Fell them all and everything` +
+    ` burns but the arsenal and the records. Fall, and nothing is lost.`;
   const wall = document.getElementById('rebirthPerks');
   wall.innerHTML = '';
   for (const p of REBIRTH_PERKS) {
@@ -404,12 +404,12 @@ function renderRebirth() {
     wall.appendChild(row);
   }
   const btn = document.getElementById('btnRebirth');
-  btn.disabled = !gateOpen || game.state !== 'rebirth' || rebirthReturn !== 'playing';
-  btn.textContent = rebirthArmed ? 'SPEAK IT AGAIN — BE REBORN' : 'BE REBORN';
+  const walking = game.mode === 'ascension' && rebirthReturn === 'playing';
+  btn.disabled = walking;
+  btn.textContent = rebirthArmed ? '転生の道 — WALK THE ROAD' : 'BE REBORN';
   document.getElementById('rebirthMsg').textContent =
-    rebirthReturn !== 'playing'
-      ? 'the cycle turns only at the tomb altar — this scroll only tells of it'
-      : (rebirthArmed ? 'once spoken twice, nothing unsays it' : '');
+    walking ? 'you are already on the road — the lords are waiting'
+      : (rebirthArmed ? 'spoken again, the road opens — five lords bar the way' : '');
 }
 function openRebirth() {
   rebirthReturn = game.state === 'playing' ? 'playing' : 'title';
@@ -426,21 +426,10 @@ function closeRebirth() {
 document.getElementById('btnRebirthClose').onclick = closeRebirth;
 document.getElementById('btnRebirth').onclick = () => {
   if (!rebirthArmed) { rebirthArmed = true; renderRebirth(); return; }
-  const err = doRebirth();
-  if (err) {
-    document.getElementById('rebirthMsg').textContent = err;
-    rebirthArmed = false;
-    return;
-  }
-  // the world wakes into the new life
-  game.honor = save.honor;
-  game.equipped = save.equipped;
-  game.adminUnlocked = save.adminUnlocked;
+  // the confirmation opens the ROAD, not the cycle — the cycle is earned
+  // at the far end of five lords (ascensionComplete → doRebirth)
   rebirthArmed = false;
-  playSfx('achieve');
-  returnToMenu();
-  renderMenu();
-  setBanner(`転生 cycle ${rebirthLevel()} — might ×${rebirthMult().toFixed(2)}`, 3.5);
+  startRun('ascension');
 };
 document.getElementById('btnRebirthMenu').onclick = openRebirth;
 
@@ -751,10 +740,19 @@ function renderMenu() {
     b.onclick = () => { menuSel.level = i; renderMenu(); };
     lr.appendChild(b);
   }
+  // the meta doors reveal themselves as the save earns them — a fresh
+  // scroll shows only training; clutter is paid for with progress
   document.getElementById('btnMerchantMenu').style.display =
     save.merchantUnlocked ? 'inline-block' : 'none';
+  document.getElementById('btnTomb').style.display =
+    (save.honor >= 300 || tombSessions() > 0 || rebirthLevel() > 0)
+      ? 'inline-block' : 'none';
+  // 転生 the road opens once the first lord has taught you the game —
+  // the road itself (five lords, risen to your might) is the only gate
   document.getElementById('btnRebirthMenu').style.display =
-    (rebirthLevel() > 0 || (save.maxLevelCleared || 0) >= 5) ? 'inline-block' : 'none';
+    (rebirthLevel() > 0 || (save.maxLevelCleared || 0) >= 1 ||
+     ((save.maps.best && save.maps.best[0]) || 0) >= STAGES_PER_MAP)
+      ? 'inline-block' : 'none';
   let rec = `wallet <b>誉 ${save.honor}</b>`;
   if (rebirthLevel() > 0)
     rec += ` · 転生 cycle <b>${rebirthLevel()}</b> (×${rebirthMult().toFixed(2)})`;

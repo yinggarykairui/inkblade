@@ -428,6 +428,13 @@ cv.addEventListener('mousemove', e => {
 cv.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   initAudio();
+  // a mouse hand that hasn't found the setting gets told exactly once
+  if (!save.mouseAim && !save.mouseHinted && game.state === 'playing' &&
+      game.mode !== 'duel' && !netCoop() && !touch.active) {
+    save.mouseHinted = true;
+    persistSave();
+    setBanner('滑 the cursor can own the blade — enable MOUSE AIM in settings', 3.2);
+  }
   if (!mouseAimOn()) return;
   e.preventDefault();
   mouse.down = true;
@@ -602,3 +609,205 @@ function drawTouchUI() {
   ctx.globalAlpha = 1;
 }
 
+
+/* ---------- 掛軸 the hanging scrolls — procedural sumi-e for the menus ----
+   No asset may enter the file, so the paintings are BRUSHED at boot on
+   offscreen canvases (cosmetic dice only — never the sim stream) and hung
+   as CSS backgrounds flanking the menu panels: silk-mounted landscapes of
+   misted ridges, a pagoda, a waterfall, a calligraphy column and the red
+   seal. A parchment-grain tile is baked into every scroll panel the same
+   way. All of it wrapped in try/catch — a headless harness has no head. */
+function brushLandscape() {
+  const pw = 300, ph = 920;
+  const c = document.createElement('canvas');
+  c.width = pw; c.height = ph;
+  const g = c.getContext('2d');
+  const R = Math.random;
+  // lacquered dowels top and bottom — the painting is itself a scroll
+  const dowel = y => {
+    const grd = g.createLinearGradient(0, y, 0, y + 14);
+    grd.addColorStop(0, '#5a4632'); grd.addColorStop(.55, '#241c16');
+    grd.addColorStop(1, '#3a2c20');
+    g.fillStyle = grd;
+    g.fillRect(6, y, pw - 12, 14);
+    for (const kx of [2, pw - 16]) {           // end knobs, gold-pinned
+      g.fillStyle = '#2c2016';
+      g.beginPath(); g.arc(kx + 7, y + 7, 8, 0, TAU); g.fill();
+      g.strokeStyle = '#a8843a'; g.lineWidth = 2;
+      g.beginPath(); g.arc(kx + 7, y + 7, 8, 0, TAU); g.stroke();
+    }
+  };
+  // the silk brocade mount — the muted green of the reference
+  g.fillStyle = '#a9a583';
+  g.fillRect(0, 8, pw, ph - 16);
+  g.fillStyle = 'rgba(255,255,240,.05)';
+  for (let y = 8; y < ph - 8; y += 4) g.fillRect(0, y, pw, 1);
+  g.fillStyle = 'rgba(60,55,35,.12)';
+  for (let x = 0; x < pw; x += 7) g.fillRect(x, 8, 1, ph - 16);
+  // the paper field
+  const fx0 = 24, fy0 = 54, fw = pw - 48, fh = ph - 108;
+  g.fillStyle = '#efe7d2';
+  g.fillRect(fx0, fy0, fw, fh);
+  for (let i = 0; i < 500; i++) {              // paper mottle
+    g.fillStyle = `rgba(120,100,70,${R() * .05})`;
+    g.fillRect(fx0 + R() * fw, fy0 + R() * fh, 1 + R() * 3, 1 + R() * 3);
+  }
+  g.save();
+  g.beginPath(); g.rect(fx0, fy0, fw, fh); g.clip();
+  // six ridges, back to front — further is fainter, mist between
+  const inkAt = a => `rgba(72,80,88,${a})`;
+  let pagodaSpot = null, fallSpot = null;
+  for (let r = 0; r < 6; r++) {
+    const baseY = fy0 + fh * (.16 + .13 * r);
+    const alpha = .12 + r * .1;
+    // jagged crest polyline
+    const pts = [];
+    let x = fx0 - 20;
+    while (x < fx0 + fw + 20) {
+      pts.push([x, baseY - (18 + R() * (46 + r * 16)) * (R() < .25 ? 1.9 : 1)]);
+      x += 16 + R() * 34;
+    }
+    g.fillStyle = inkAt(alpha);
+    g.beginPath();
+    g.moveTo(fx0 - 20, baseY + fh * .16);
+    for (const [qx, qy] of pts) g.lineTo(qx, qy);
+    g.lineTo(fx0 + fw + 20, baseY + fh * .16);
+    g.closePath(); g.fill();
+    // dry-brush texture dabs riding the crest
+    g.strokeStyle = inkAt(Math.min(.5, alpha + .18));
+    g.lineWidth = 1;
+    for (const [qx, qy] of pts) {
+      if (R() < .55) continue;
+      g.beginPath();
+      g.moveTo(qx, qy + 2);
+      g.lineTo(qx - 4 - R() * 8, qy + 8 + R() * 14);
+      g.stroke();
+    }
+    // trees along the nearer crests — ink blobs on short trunks
+    if (r >= 3) {
+      for (const [qx, qy] of pts) {
+        if (R() < .6) continue;
+        g.strokeStyle = 'rgba(40,44,40,.6)';
+        g.beginPath(); g.moveTo(qx, qy); g.lineTo(qx + crand(-2, 2), qy - 7); g.stroke();
+        g.fillStyle = r === 5 && R() < .3
+          ? 'rgba(150,80,50,.55)'          // the reference's autumn embers
+          : 'rgba(48,56,48,.55)';
+        for (let b = 0; b < 3; b++) {
+          g.beginPath();
+          g.arc(qx + crand(-5, 5), qy - 8 + crand(-4, 2), 2.5 + R() * 3, 0, TAU);
+          g.fill();
+        }
+      }
+    }
+    if (r === 2) pagodaSpot = [fx0 + fw * (.3 + R() * .3), baseY - 30];
+    if (r === 4) fallSpot = [fx0 + fw * (.14 + R() * .2), baseY];
+    // mist: a soft cream band swallowing each ridge's feet
+    const mist = g.createLinearGradient(0, baseY + 6, 0, baseY + fh * .13);
+    mist.addColorStop(0, 'rgba(239,231,210,0)');
+    mist.addColorStop(.6, 'rgba(239,231,210,.8)');
+    mist.addColorStop(1, 'rgba(239,231,210,0)');
+    g.fillStyle = mist;
+    g.fillRect(fx0, baseY + 6, fw, fh * .13);
+  }
+  // the pagoda — three sweeping roofs and a finial, pure silhouette
+  if (pagodaSpot) {
+    const [px, py] = pagodaSpot;
+    g.fillStyle = 'rgba(38,42,46,.8)';
+    for (let t = 0; t < 3; t++) {
+      const w2 = 26 - t * 6, y2 = py - t * 11;
+      g.beginPath();
+      g.moveTo(px - w2, y2);
+      g.quadraticCurveTo(px, y2 - 7, px + w2, y2);
+      g.lineTo(px + w2 - 5, y2 - 5); g.lineTo(px - w2 + 5, y2 - 5);
+      g.closePath(); g.fill();
+      g.fillRect(px - w2 * .45, y2 - 11, w2 * .9, 7);
+    }
+    g.fillRect(px - 1.5, py - 40, 3, 8);
+  }
+  // the waterfall — paper shows through the near ridge in a falling thread
+  if (fallSpot) {
+    const [wx, wy] = fallSpot;
+    g.strokeStyle = 'rgba(239,231,210,.85)';
+    for (let s = 0; s < 4; s++) {
+      g.lineWidth = 3 - s * .5;
+      g.beginPath();
+      g.moveTo(wx + s * 3 - 4, wy - 16);
+      g.quadraticCurveTo(wx + s * 3 - 6 + crand(-2, 2), wy + 24, wx + s * 3 - 4, wy + 58);
+      g.stroke();
+    }
+    g.fillStyle = 'rgba(239,231,210,.5)';
+    for (let i = 0; i < 8; i++) {
+      g.beginPath();
+      g.arc(wx + crand(-8, 8), wy + 58 + crand(0, 8), 1.5 + R() * 2, 0, TAU);
+      g.fill();
+    }
+  }
+  // the calligraphy column and the artist's red seal, top-right
+  const GLYPHS = '山水雲霧月風松嵐帰道墨心静遠夢';
+  g.fillStyle = 'rgba(43,35,32,.55)';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (let col = 0; col < 2; col++) {
+    const gx = fx0 + fw - 22 - col * 20;
+    const n = col ? 5 + Math.floor(R() * 3) : 9 + Math.floor(R() * 4);
+    g.font = `${col ? 11 : 13}px Georgia,serif`;
+    for (let i = 0; i < n; i++)
+      g.fillText(GLYPHS[Math.floor(R() * GLYPHS.length)],
+                 gx + crand(-1, 1), fy0 + 22 + i * (col ? 14 : 17));
+  }
+  g.fillStyle = 'rgba(160,42,30,.8)';
+  g.fillRect(fx0 + fw - 30, fy0 + 190, 13, 13);
+  g.fillStyle = 'rgba(239,231,210,.5)';
+  g.fillRect(fx0 + fw - 27, fy0 + 193, 3, 3);
+  g.fillRect(fx0 + fw - 23, fy0 + 196, 3, 4);
+  g.restore();
+  // aged edge on the paper, then the dowels over everything
+  g.strokeStyle = 'rgba(93,74,50,.3)'; g.lineWidth = 2;
+  g.strokeRect(fx0, fy0, fw, fh);
+  dowel(0); dowel(ph - 14);
+  return c;
+}
+function brushParchmentTile() {
+  const s = 220;
+  const c = document.createElement('canvas');
+  c.width = s; c.height = s;
+  const g = c.getContext('2d');
+  const R = Math.random;
+  for (let i = 0; i < 26; i++) {               // soft age blotches
+    g.fillStyle = `rgba(139,109,66,${.02 + R() * .03})`;
+    g.beginPath(); g.arc(R() * s, R() * s, 8 + R() * 34, 0, TAU); g.fill();
+  }
+  g.lineWidth = 1;
+  for (let i = 0; i < 90; i++) {               // paper fibers
+    g.strokeStyle = `rgba(120,95,60,${.03 + R() * .05})`;
+    const x = R() * s, y = R() * s, a = R() * TAU, l = 3 + R() * 9;
+    g.beginPath(); g.moveTo(x, y);
+    g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  for (let i = 0; i < 5; i++) {                // creases and old cracks
+    g.strokeStyle = `rgba(93,74,50,${.06 + R() * .06})`;
+    let x = R() * s, y = R() * s;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 4; k++) {
+      x += crand(-26, 26); y += crand(-26, 26);
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  return c;
+}
+(function hangMenuScrolls() {
+  try {
+    const left = brushLandscape().toDataURL('image/png');
+    const right = brushLandscape().toDataURL('image/png');   // a second, different painting
+    const tile = brushParchmentTile().toDataURL('image/png');
+    const st = document.createElement('style');
+    st.textContent =
+      `#titleOverlay,#recordsOverlay,#settingsOverlay,#rebirthOverlay{` +
+      `background-image:url(${left}),url(${right});` +
+      `background-repeat:no-repeat,no-repeat;` +
+      `background-position:left 14px center,right 14px center;` +
+      `background-size:auto 86%,auto 86%;}` +
+      `.panel{background-image:url(${tile});}`;
+    document.head.appendChild(st);
+  } catch (e) { /* headless harness: no head to hang a scroll on */ }
+})();

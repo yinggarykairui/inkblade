@@ -151,6 +151,8 @@ function update(dt) {
   if (game.mode === 'rush') game.rushTime += dt;
   game.bannerT = Math.max(0, game.bannerT - dt);
   game.comboPop = Math.max(0, game.comboPop - dt);
+  // the combo is a rhythm, not a ledger — four idle seconds let it drop
+  if (game.combo > 0 && game.time - (game.lastComboAt || 0) > 4) game.combo = 0;
   game.desatT = Math.max(0, game.desatT - dt);
   game.flashT = Math.max(0, game.flashT - dt);
   meleeTokens.update(dt); rangedTokens.update(dt);
@@ -1105,22 +1107,9 @@ function drawHUD() {
     }
   }
   // 奥 ultimate meter — neon; drains as a duration bar while the surge runs.
-  // Until the first rebirth the gate is closed: the meter still FILLS —
-  // grayed behind the seal — but only the training yard lets it speak.
-  if (game.mode !== 'duel' && game.mode !== 'training' && !ultUnlocked()) {
-    const uy = by + 42, uw = 190;
-    ctx.fillStyle = 'rgba(43,35,32,.45)'; ctx.font = '15px Georgia,serif';
-    ctx.fillText('奥', bx - 2, uy + bh / 2);
-    ctx.strokeStyle = 'rgba(43,35,32,.45)'; ctx.lineWidth = 2;
-    ctx.strokeRect(bx + 20, uy, uw, bh);
-    ctx.fillStyle = 'rgba(43,35,32,.08)';
-    ctx.fillRect(bx + 20, uy, uw, bh);
-    const sfrac = clamp(game.ult.meter / game.ult.max, 0, 1);
-    ctx.fillStyle = 'rgba(43,35,32,.28)';   // ashen ink — power owned, unspendable
-    ctx.fillRect(bx + 21, uy + 1, (uw - 2) * sfrac, bh - 2);
-    ctx.fillStyle = 'rgba(43,35,32,.5)'; ctx.font = 'italic 11px Georgia,serif';
-    ctx.fillText('封 sealed — 転生 opens the gate', bx + 20 + uw + 10, uy + bh / 2);
-  } else if (game.mode !== 'duel') {
+  // Before the first rebirth the ART already answers a full meter; only
+  // the INK SURGE after it waits behind the cycle (the label says so).
+  if (game.mode !== 'duel') {
     const uy = by + 42, uw = 190;
     const nz = weaponNeon(game.equipped);
     ctx.fillStyle = INK; ctx.font = '15px Georgia,serif';
@@ -1156,7 +1145,9 @@ function drawHUD() {
       ctx.globalAlpha = 1; ctx.shadowBlur = 0;
       if (full) {
         ctx.fillStyle = INK; ctx.font = 'italic 12px Georgia,serif';
-        ctx.fillText('press R — 奥義', bx + 20 + uw + 10, uy + bh / 2);
+        ctx.fillText(ultUnlocked() ? 'press R — 奥義'
+          : 'press R — the art alone · 転生 wakes the SURGE',
+          bx + 20 + uw + 10, uy + bh / 2);
       }
     }
   }
@@ -1176,6 +1167,8 @@ function drawHUD() {
     modeLine = game.chaos
       ? `亂 CHAOS — STAGE ${game.stage} · ${fmtTime(game.rushTime)}`
       : `討 BOSS RUSH — ${Math.min(game.stage, 5)}/5 · ${fmtTime(game.rushTime)}`;
+  else if (game.mode === 'ascension')
+    modeLine = `転生の道 THE ROAD OF REBIRTH — LORD ${Math.min(game.stage, 5)}/5`;
   else if (game.mode === 'training') modeLine = '稽古 THE TRAINING YARD';
   else if (game.mode === 'tomb') modeLine = '墓 THE TOMB OF THE FALLEN';
   else modeLine = '視 THE MERCHANT’S STALL';
@@ -1386,31 +1379,78 @@ function drawHUD() {
       ctx.fillText('M — release the breath inside the gold', W / 2, by0 + 32);
     }
   }
-  // the reveal card — a hanging slip of parchment naming the pull
+  // the reveal — a lacquer CAROUSEL: the arsenal streams past a gold
+  // marker, the reel slows on an easing curve, and the landing tile is
+  // the pull. Filler tiles are cosmetic; only the center tile is law.
   if (chestCard) {
     const cc = chestCard;
-    const inT = clamp(cc.t / .25, 0, 1), outT = clamp((2.8 - cc.t) / .3, 0, 1);
+    const inT = clamp(cc.t / .2, 0, 1);
+    const outT = clamp((REEL.spin + REEL.hold - cc.t) / .35, 0, 1);
     const a = Math.min(inT, outT);
-    const cw = 240, ch2 = 120, cx = W / 2, cy = 150 - (1 - inT) * 24;
+    const cx = W / 2, cy = 150 - (1 - inT) * 18;
+    const step = REEL.step, tw = 60, th = 76;
+    const winW = step * 4.6, winH = th + 22;
+    const center = reelCenterAt(cc.t);
+    const landed = cc.t >= REEL.spin;
+    const tierCol = t => t === 'legendary' ? GOLD
+                       : t === 'pure' ? '#5d7f9c' : 'rgba(43,35,32,.55)';
     ctx.save();
     ctx.globalAlpha = a;
+    // the parchment window the reel turns behind
     ctx.fillStyle = CREAM;
-    ctx.strokeStyle = cc.tier === 'legendary' ? GOLD : INK;
-    ctx.lineWidth = cc.tier === 'legendary' ? 3 : 2;
-    ctx.fillRect(cx - cw / 2, cy - ch2 / 2, cw, ch2);
-    ctx.strokeRect(cx - cw / 2, cy - ch2 / 2, cw, ch2);
+    ctx.strokeStyle = landed ? tierCol(cc.tier) : INK;
+    ctx.lineWidth = landed && cc.tier === 'legendary' ? 3 : 2;
+    ctx.fillRect(cx - winW / 2, cy - winH / 2, winW, winH);
+    ctx.strokeRect(cx - winW / 2, cy - winH / 2, winW, winH);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - winW / 2 + 3, cy - winH / 2 + 3, winW - 6, winH - 6);
+    ctx.clip();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = cc.tier === 'legendary' ? GOLD
-                  : cc.tier === 'pure' ? '#5d574f' : 'rgba(43,35,32,.65)';
-    ctx.font = 'italic 12px Georgia,serif';
-    ctx.fillText(`${RARITY[cc.tier].kanji} ${RARITY[cc.tier].name.toUpperCase()}`,
-      cx, cy - ch2 / 2 + 18);
-    ctx.fillStyle = INK;
-    ctx.font = '34px Georgia,serif';
-    ctx.fillText(cc.item.kanji, cx, cy - 2);
-    ctx.font = 'italic 13px Georgia,serif';
-    ctx.fillText(`${cc.item.name}${cc.isNew ? '' : ' — melted to temper'}`,
-      cx, cy + ch2 / 2 - 18);
+    for (let i = 0; i < cc.reel.length; i++) {
+      const x = cx + (i - center) * step;
+      if (x < cx - winW / 2 - tw || x > cx + winW / 2 + tw) continue;
+      const id = cc.reel[i];
+      const it = WEAPONS[id] || BOWS[id];
+      const rar = WPN_RARITY[id] || BOW_RARITY[id] || 'worn';
+      const isWin = landed && i === REEL.land;
+      // tiles dim toward the window edges; the winner burns bright
+      const edge = clamp(1 - Math.abs(x - cx) / (winW / 2), 0, 1);
+      ctx.globalAlpha = a * (isWin ? 1 : .35 + .5 * edge);
+      if (isWin) {
+        ctx.save();
+        ctx.shadowBlur = 16;
+        ctx.shadowColor = tierCol(cc.tier);
+      }
+      ctx.strokeStyle = isWin ? tierCol(cc.tier) : tierCol(rar);
+      ctx.lineWidth = isWin ? 3 : 1.4;
+      ctx.strokeRect(x - tw / 2, cy - th / 2 + 2, tw, th - 10);
+      ctx.fillStyle = INK;
+      ctx.font = (isWin ? '32px' : '26px') + ' Georgia,serif';
+      ctx.fillText(it.kanji, x, cy - 5);
+      ctx.font = 'italic 9px Georgia,serif';
+      ctx.fillStyle = tierCol(rar);
+      ctx.fillText(RARITY[rar].name.toUpperCase(), x, cy + th / 2 - 14);
+      if (isWin) ctx.restore();
+    }
+    ctx.restore();   // clip off
+    // the gold marker notches, top and bottom of the window
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = GOLD; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - winH / 2 - 7); ctx.lineTo(cx, cy - winH / 2 + 6);
+    ctx.moveTo(cx, cy + winH / 2 + 7); ctx.lineTo(cx, cy + winH / 2 - 6);
+    ctx.stroke();
+    // once the reel rests, the pull is named beneath the window
+    if (landed) {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = cc.tier === 'legendary' ? GOLD : INK;
+      ctx.font = 'italic 14px Georgia,serif';
+      ctx.fillText(
+        `${RARITY[cc.tier].kanji} ${cc.item.name} — “${cc.item.epithet}”` +
+        (cc.isNew ? '' : ' · melted to temper'),
+        cx, cy + winH / 2 + 18);
+    }
     ctx.restore();
     ctx.globalAlpha = 1;
   }

@@ -215,12 +215,14 @@ function genInfiniteComp(w) {
 }
 
 /* ---------- curses: self-chosen handicaps, priced in honor ---------- */
+// bonuses priced by what each burden actually costs a SKILLED hand:
+// a parry player barely misses the roll, but nobody escapes mirrored feet
 const CURSES = [
-  { id: 'noroll', kanji: '根', name: 'The Rooted',   bonus: 1.0,
+  { id: 'noroll', kanji: '根', name: 'The Rooted',   bonus: .75,
     desc: 'no dodge roll — parry or perish' },
   { id: 'frail',  kanji: '硝', name: 'The Glass',    bonus: .75,
     desc: 'half max health' },
-  { id: 'mirror', kanji: '鏡', name: 'The Reversed', bonus: .5,
+  { id: 'mirror', kanji: '鏡', name: 'The Reversed', bonus: 1.0,
     desc: 'movement controls are mirrored' },
   { id: 'winded', kanji: '虚', name: 'The Hollow',   bonus: 1.0,
     desc: 'every swing is a winded swing — slow and weak' },
@@ -266,6 +268,7 @@ function startRun(mode) {
   game.curses = (mode === 'duel' || mode === 'merchant' || mode === 'training')
     ? [] : menuSel.curses.slice();
   game.blessings = [];
+  game.shrineN = 0;          // bargain-shrine cadence restarts each run
   game.omamoriUsed = false;
   game.levelDamageTaken = 0;
   game.honor = save.honor;
@@ -310,6 +313,14 @@ function startRun(mode) {
     setTheme(0);
     resetPlayer();
     startRushStage();
+  } else if (mode === 'ascension') {
+    // 転生の道 — the Road of Rebirth: the five lords, back to back, risen
+    // to match the player's own might. Fell them all and the cycle turns;
+    // fall, and nothing is lost but the walk.
+    game.stage = 1;
+    setTheme(0);
+    resetPlayer();
+    startAscensionStage();
   } else if (mode === 'duel') {
     setTheme(menuSel.duelArena);   // any themed ground, hazards live
     resetPlayer();          // parked off to the side, never drawn in duels
@@ -435,6 +446,45 @@ function startRushStage() {
     setBanner('— ' + BOSS_NAMES[k - 1] + ' —', 2.2);
   }
 }
+/* ---------- 転生の道 the Road of Rebirth ----------
+   Confirming a rebirth no longer flips a switch — it opens a TRIAL: the
+   five story lords in their arenas, one after another. The road rises to
+   meet the reborn: lords scale with rebirthMult itself, so every walk
+   fights like the first (the arsenal's growth is the only edge kept).
+   From cycle 1 on, the lords come in their REMIXED forms; the final gate
+   is always the Storm Sovereign, Ascendant.                             */
+function ascensionMults() {
+  const lvl = rebirthLevel();
+  // waveMults already hardens ×1.08/cycle; this tops it up so the lords'
+  // health tracks the player's ×1.5^cycle exactly, damage rising gentler
+  // (the 40%-cap fairness rule holds regardless)
+  return { hp: Math.max(1, rebirthMult() * .85 / (1 + .08 * lvl)),
+           dmg: Math.max(1, Math.pow(1.22, lvl)) };
+}
+function startAscensionStage() {
+  bankOrbs();
+  const k = game.stage, lvl = rebirthLevel();
+  setTheme(k - 1);
+  // first walk: the lords as the story knew them, but the last gate is
+  // always ascendant; every later cycle remixes the whole road
+  const remixed = lvl >= 1 || k === 5;
+  spawnBosses(remixed ? makeRemixBossList(k - 1) : makeLevelBossList(k),
+              ascensionMults());
+  const name = (remixed ? BOSS_REMIX_NAMES : BOSS_NAMES)[k - 1];
+  setBanner(k === 1 ? `転生の道 — the road opens · ${name} (1/5)`
+          : k < 5 ? `転生の道 — ${name} bars the road (${k}/5)`
+          : `転生の道 — the final gate · ${name}`, 2.8);
+}
+function ascensionComplete() {
+  bankOrbs();
+  doRebirth();
+  game.honor = save.honor;
+  game.equipped = save.equipped;
+  game.adminUnlocked = save.adminUnlocked;
+  playSfx('achieve');
+  returnToMenu();
+  setBanner(`転生 the road is walked — cycle ${rebirthLevel()} · might ×${rebirthMult().toFixed(2)}`, 4);
+}
 function fmtTime(t) {
   const m = Math.floor(t / 60), sec = t - m * 60;
   return m + ':' + (sec < 10 ? '0' : '') + sec.toFixed(1);
@@ -462,7 +512,8 @@ function rushComplete() {
 }
 /* ---------- 墓 the Tomb of the Fallen ----------
    The macro honor sink: offer a toll at an ancestor tablet, survive the
-   trial, and a base stat steps toward its 10× ceiling. Toll scales
+   trial, and a base stat takes one FLAT, uncapped step (applied after
+   the damage multipliers — see 25-save). Toll scales
    Cost(S) = 300 × 1.5^S PER TRACK; a hit-scarred trial refunds 60% —
    the same "the ink flows back" language as a broken 奥義 windup.       */
 let tombTablets = [];
@@ -530,13 +581,18 @@ function updateTomb(dt) {
         T.phase = 'breath';
         T.t = 0;
         T.pressed = false;
+        T.mLatch = true;         // M held through the fight must lift first
+        T.ph = rand(0, TAU);     // the needle never starts centered
         setBanner('still the breath — press M inside the gold band', 2.4);
       }
     }
   } else if (T.phase === 'breath') {
-    // the needle drifts on two beats; one press decides the banking
-    T.needle = Math.sin(T.t * 2.1) * .8 + Math.sin(T.t * 3.7) * .2;
-    if (!T.pressed && keys.m) {
+    // the needle drifts on two beats from a random phase; one press decides
+    // the banking — and only a press MADE here counts: a hand already
+    // resting on M when the breath begins must lift and press anew
+    T.needle = Math.sin(T.t * 2.1 + T.ph) * .8 + Math.sin(T.t * 3.7 + T.ph * 1.7) * .2;
+    if (!keys.m) T.mLatch = false;
+    if (!T.pressed && keys.m && !T.mLatch) {
       T.pressed = true;
       const off = Math.abs(T.needle);
       const grade = off < .18 ? 1 : off < .42 ? .8 : 0;
@@ -725,6 +781,8 @@ function startCampaignStage(first) {
 }
 function onWaveCleared() {
   adapt.decay();
+  // the first cleared wave earns the archery lesson — a calm moment for it
+  hintOnce('bow', 'Q — trade blade for bow: hold V to bend the string, release to loose');
   if (game.coop) reviveDowned();   // the fallen stand once the wave breaks
   if (game.mode === 'campaign') {
     save.maps.best[game.map] = Math.max(save.maps.best[game.map] || 0, game.cStage);
@@ -736,28 +794,29 @@ function onWaveCleared() {
         Math.min(MAP_COUNT, game.map + 2));
       save.merchantUnlocked = true;
       game.victory = true;
-      merchant = { x: clamp(p.x + 150, ARENA.x + 90, ARENA.x + ARENA.w - 90),
-                   y: clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90) };
+      merchant = clearSpot(clamp(p.x + 150, ARENA.x + 90, ARENA.x + ARENA.w - 90),
+                           clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90));
       spawnPortal(p.x - 150, p.y, 'home');   // the road home stands open
       setBanner(game.map + 1 < MAP_COUNT
         ? 'the map is cleared — a deeper one unfurls'
         : 'the fifth map falls silent — the ledger is complete', 3.2);
       if (game.map + 1 >= MAP_COUNT) award('trialAll');
     } else {
-      // stage chest roll: 12% + 1% per stage into the map
-      if (srandom() < .12 + game.cStage * .01) rollChest(p, 0);
+      // stage chest roll: 18% + 1.5% per stage into the map
+      if (srandom() < .18 + game.cStage * .015) rollChest(p, 0);
       spawnPortal(p.x, p.y, 'next');
       const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
       if (game.cStage % 4 === 0)
         spawnShrine(portal.x - side * 150,
                     portal.y + (portal.y > ARENA.y + ARENA.h / 2 ? -110 : 110));
       if (game.cStage % 5 === 0)
-        merchant = { x: clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
-                     y: clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70) };
+        merchant = clearSpot(clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
+                             clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70));
     }
     persistSave();
   } else if (game.mode === 'level') {
     if (game.wave >= game.levelWaves) {          // the boss has fallen
+      const firstClear = game.level > (save.maxLevelCleared || 0);
       save.maxLevelCleared = Math.max(save.maxLevelCleared, game.level);
       if (game.level === 1) award('trial1');
       if (game.level >= 5) award('trialAll');
@@ -765,21 +824,25 @@ function onWaveCleared() {
       if (game.curses.length) award('defiant');
       const p = game.lastBossDeath ||
         { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+      // the story lords pay in lacquer: a first clear is ALWAYS honored
+      // (lord-biased roll); revisits keep a smaller promise
+      if (firstClear) rollChest(p, 1);
+      else if (srandom() < .25) rollChest(p, 0);
       if (game.level >= 5) {
         // the game's only friendly face — and, at last, the road home
         save.merchantUnlocked = true;
         game.victory = true;
         const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
-        merchant = { x: clamp(p.x, ARENA.x + 90, ARENA.x + ARENA.w - 90),
-                     y: clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90) };
+        merchant = clearSpot(clamp(p.x, ARENA.x + 90, ARENA.x + ARENA.w - 90),
+                             clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90));
         spawnPortal(p.x + side * 170, p.y, 'home');
         setBanner('the storm breaks — the trial is complete · the road home stands open', 3.2);
       } else {
         spawnPortal(p.x, p.y, 'next');
         // the merchant sets up beside every rift — trade before you step through
         const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
-        merchant = { x: clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
-                     y: clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70) };
+        merchant = clearSpot(clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
+                             clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70));
         // a wayside shrine appears after every cleared level
         spawnShrine(portal.x - side * 150,
                     portal.y + (portal.y > ARENA.y + ARENA.h / 2 ? -110 : 110));
@@ -798,17 +861,50 @@ function onWaveCleared() {
       P.hp = Math.min(P.maxHp, P.hp + (game.chaos ? 35 : 50));
       P.st = P.maxSt;
     }
+    // the rushes pay as they go — a chest rolled here rides into the next
+    // stage's arena, opened between swings
+    {
+      const p = game.lastBossDeath ||
+        { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+      if (!game.chaos) {
+        // gauntlet lords 1–4 may leave lacquer (stage 5 ends on the scroll)
+        if (game.stage < 5 && srandom() < .3) rollChest(p, 1);
+      } else {
+        const lap = Math.floor((game.stage - 1) / 5);
+        if (game.stage % 5 === 0) rollChest(p, Math.min(2, 1 + lap));
+        else if (srandom() < .15) rollChest(p, Math.min(2, lap));
+      }
+    }
     game.stage++;
     if (game.chaos && game.stage >= 10) award('chaos10');
     persistSave();
     if (!game.chaos && game.stage > 5) rushComplete();
     else startRushStage();
+  } else if (game.mode === 'ascension') {
+    if (game.stage >= 5) { ascensionComplete(); return; }   // the road is walked
+    player.hp = Math.min(player.maxHp, player.hp + 40);
+    player.st = player.maxSt;
+    const p = game.lastBossDeath ||
+      { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+    if (srandom() < .3) rollChest(p, 1);   // the road's lords may pay lacquer
+    game.stage++;
+    startAscensionStage();
   } else if (game.mode === 'infinite') {
     if (game.wave > save.deepestWave) {
       save.deepestWave = game.wave;
       save.recCycles.wave = rebirthLevel();
     }
     if (game.wave >= 20) award('wave20');
+    // the storm pays in lacquer too: every fifth-wave lord may leave a
+    // chest, every full arena rotation guarantees one, and the tier bias
+    // deepens with the wave (sim-stream dice — both online sims agree)
+    if (game.wave % 5 === 0) {
+      const p = game.lastBossDeath ||
+        { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+      const bias = Math.min(2, Math.floor(game.wave / 20));
+      if (game.wave % 25 === 0) rollChest(p, Math.max(1, bias));
+      else if (srandom() < .4) rollChest(p, bias);
+    }
     persistSave();
     game.wave++;
     startInfiniteWave(false);
@@ -845,12 +941,18 @@ function gameOver() {
     save.highScores.sort((a, b) => b.wave - a.wave || b.honor - a.honor);
     save.highScores = save.highScores.slice(0, 5);
     statLine = `You fell on wave <b>${game.wave}</b> of the endless storm (×${game.diff})`;
+  } else if (game.mode === 'ascension') {
+    statLine = `The road refused you — lord <b>${Math.min(game.stage, 5)}/5</b> holds the pass.` +
+      ` <i>Nothing is lost; walk again when ready</i>`;
   } else {
     statLine = `You fell in <b>Level ${game.level}</b>, wave <b>${game.wave}/${game.levelWaves}</b> (×${game.diff})`;
   }
   persistSave();
+  // the recap names the killer — the lesson survives the ink
+  const fb = game.lastHitDesc
+    ? `<br>felled by <b>${game.lastHitDesc.name}</b> (−${fmtNum(game.lastHitDesc.dmg)})` : '';
   document.getElementById('overStats').innerHTML =
-    statLine + ` wielding <b>${WEAPONS[game.equipped].name}</b><br>` +
+    statLine + ` wielding <b>${WEAPONS[game.equipped].name}</b>` + fb + `<br>` +
     `Honor earned this run: <b>${game.honorEarned}</b> · wallet: <b>誉 ${game.honor}</b> <i>(kept)</i>`;
   document.getElementById('overScores').innerHTML =
     game.mode === 'infinite' ? scoreListHTML() : '';

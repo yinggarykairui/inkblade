@@ -61,6 +61,8 @@ function defaultSave() {
     shakeMul: 1,              // screen-shake intensity setting
     colorblind: false,        // high-contrast telegraph palette
     mouseAim: false,          // 360° cursor aim (PvE only; duels stay keys)
+    mouseHinted: false,       // the one-time "mouse aim exists" banner
+    seenHints: [],            // one-shot in-fight teaching, each fired once ever
     kyudo: { rank: 0, best: 0 },   // 弓道 archery rite — trained bow skill
     rebirth: { level: 0 },         // 転生 — the only exponential the player owns
   };
@@ -77,6 +79,7 @@ function applySaveData(d) {
   save.audio = Object.assign({ master: .8, sfx: 1, ambient: .7, muted: false }, d.audio);
   save.mastery = Object.assign({}, d.mastery);
   if (!Array.isArray(save.achievements)) save.achievements = [];
+  if (!Array.isArray(save.seenHints)) save.seenHints = [];
   if (!Array.isArray(save.charmsOwned)) save.charmsOwned = [];
   if (save.charm && !save.charmsOwned.includes(save.charm)) save.charm = null;
   if (save.charm2 && (!save.charmsOwned.includes(save.charm2) ||
@@ -169,27 +172,30 @@ function grantWeaponXP(id, amt) {
 }
 // Tomb of the Fallen: 10 steps per track, each ×10^(1/10) → exactly 10× capped
 /* ---------- 墓 tomb flat stats + 転生 rebirth ----------
-   THE NEW BALANCE SHAPE (2026-07-08): the tomb no longer multiplies.
-   Each hard-won step ADDS a flat stat — costs climb on a steady slope,
-   steps are uncapped, and flat gains naturally fade against the
-   world's exponential curve. The ONLY exponential the player owns is
-   rebirth: ×1.5 might and vigor per cycle. All of it PvE — duels and
-   fighters never read these.                                          */
+   THE NEW BALANCE SHAPE (2026-07-08, hardened 2026-07-08b): the tomb no
+   longer multiplies — each hard-won step ADDS a flat stat, applied AFTER
+   the damage multiplier chain (see startAttackFor), so a step is always
+   worth exactly its face. Steps stay uncapped, but the toll climbs
+   GEOMETRICALLY (×1.5 per step, matching the run-file comment): campaign
+   honor grows ~1.15^stage, so deep pockets buy a few more steps, never
+   hundreds. The ONLY exponential the player owns is rebirth: ×1.5 might
+   and vigor per cycle. All of it PvE — duels and fighters never read
+   these.                                                              */
 function tombSteps(track) { return (save.tomb && save.tomb[track]) || 0; }
 function tombAtk()     { return Math.round(tombSteps('edge')); }        // 刃 +1 attack/step
 function tombHp()      { return Math.round(tombSteps('body') * 6); }    // 体 +6 health/step
 function tombPosture() { return tombSteps('stance') * 2; }              // 姿 +2 posture/step
 function baseCrit() { return 1.5; }   // crits are a skill payoff, no longer a track
-function tombCost(track) { return Math.round(300 * (1 + .35 * tombSteps(track))); }
+function tombCost(track) { return Math.round(300 * Math.pow(1.5, tombSteps(track))); }
 // 転生 rebirth — everything burns, the arsenal and the records remain
 function rebirthLevel() { return (save.rebirth && save.rebirth.level) || 0; }
 function rebirthMult() { return Math.pow(1.5, rebirthLevel()); }
-function ultUnlocked() {   // 奥義 opens at the first rebirth; the brush is admin
-  return rebirthLevel() >= 1 || game.adminUnlocked;
-}
+function ultUnlocked() {   // the INK SURGE opens at the first rebirth; the
+  return rebirthLevel() >= 1 || game.adminUnlocked;   // brush is admin.
+}                          // The scripted ARTS themselves fire from cycle 0.
 const REBIRTH_PERKS = [
   { lvl: 1, kanji: '奥', name: 'The Gate Opens',
-    desc: '奥義 ultimate arts awaken — the meter charges, the arts answer' },
+    desc: 'the INK SURGE awakens — every spoken art now erupts into the full neon surge' },
   { lvl: 2, kanji: '視', name: 'An Old Friend',
     desc: 'the merchant knows your face — the stall stands open from birth' },
   { lvl: 3, kanji: '誉', name: 'Inheritance',
@@ -209,8 +215,10 @@ const REBIRTH_PERKS = [
   { lvl: 10, kanji: '金', name: 'The Golden Stroke',
     desc: 'your figure carries a stroke of gold — proof of ten lives' },
 ];
+// doRebirth is called ONLY by ascensionComplete — the 転生の道 Road of
+// Rebirth (five lords risen to the player's might, back to back) is the
+// one and only gate; there is no checkbox path to the cycle anymore
 function doRebirth() {
-  if ((save.maxLevelCleared || 0) < 5) return 'the fifth lord still stands';
   const lvl = rebirthLevel() + 1;
   // what crosses the cycle: the arsenal (and its tempering + mastery),
   // the records, the trained eye, the seal, and the settings. The chest
@@ -297,6 +305,17 @@ const ACHIEVEMENTS = [
   { id: 'legend',      kanji: '傳',   name: 'A Legend Unsealed',    desc: 'pull a legendary arm from a chest' },
   { id: 'tombTen',     kanji: '墓',   name: 'The Path Walked',      desc: 'walk a tomb track to its 10× end' },
 ];
+/* ---------- one-shot teaching ----------
+   The lobby teaches nothing; the blade explains itself at the moment a
+   thing first matters. Each hint fires ONCE per save, ever. Sim-driven
+   triggers, cosmetic delivery — lockstep-safe.                          */
+function hintOnce(id, txt) {
+  if (game.mode === 'duel' || save.seenHints.includes(id)) return;
+  save.seenHints.push(id);
+  persistSave();
+  setBanner(txt, 3.4);
+  playSfx('tick');
+}
 function award(id) {
   if (save.achievements.includes(id)) return;
   save.achievements.push(id);

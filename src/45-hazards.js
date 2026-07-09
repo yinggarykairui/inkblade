@@ -10,26 +10,41 @@ const BLESSINGS = [
   { id: 'tempo',  kanji: '律', name: 'Even Breath',     desc: '+25% stamina regen' },
   { id: 'edge',   kanji: '鋭', name: 'Whetted Edge',    desc: '+10% damage' },
 ];
-let shrine = null;   // {x, y, t} — cleared once a blessing is taken
+let shrine = null;   // {x, y, t, picks, cursed} — cleared once a blessing is taken
 function spawnShrine(x, y) {
-  shrine = {
-    x: clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
-    y: clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60),
-    t: 0,
-  };
+  // the offerings are rolled ONCE, here at spawn (sim-side, seeded stream):
+  // walking away and returning can never re-roll them, and both lockstep
+  // sims carve the same three cards.
+  // Every THIRD shrine of a run drives a bargain: each blessing arrives
+  // fused to a curse — a heavier burden, chosen mid-run with open eyes,
+  // and richer honor from the next wave on (waveMults reads curses live).
+  game.shrineN = (game.shrineN || 0) + 1;
+  const pool = BLESSINGS.filter(b => !game.blessings.includes(b.id));
+  const cursePool = game.shrineN % 3 === 0
+    ? CURSES.filter(c => !game.curses.includes(c.id)) : [];
+  const picks = [];
+  while (picks.length < 3 && pool.length) {
+    const bless = pool.splice(Math.floor(srandom() * pool.length), 1)[0];
+    const curse = cursePool.length
+      ? cursePool.splice(Math.floor(srandom() * cursePool.length), 1)[0] : null;
+    picks.push({ bless, curse });
+  }
+  const s = clearSpot(clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
+                      clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60));
+  shrine = { x: s.x, y: s.y, t: 0, picks,
+             cursed: !!(picks[0] && picks[0].curse) };
 }
 function openShrine() {
   game.state = 'shrine';
   const row = document.getElementById('blessRow');
   row.innerHTML = '';
-  const pool = BLESSINGS.filter(b => !game.blessings.includes(b.id));
-  const picks = [];
-  while (picks.length < 3 && pool.length)
-    picks.push(pool.splice(Math.floor(srandom() * pool.length), 1)[0]);
-  for (const b of picks) {
+  const picks = (shrine && shrine.picks) || [];
+  for (const p of picks) {
+    const b = p.bless;
     const btn = document.createElement('button');
     btn.className = 'blessCard';
-    btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}<span class="bd">${b.desc}</span>`;
+    btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}<span class="bd">${b.desc}</span>` +
+      (p.curse ? `<span class="bd" style="color:var(--red)">呪 fused to ${p.curse.name} — ${p.curse.desc}</span>` : '');
     // online co-op: the shrine answers the host's hand alone — the guest's
     // sim applies the same pick when it crosses the wire
     btn.onclick = () => { if (netCoop() && net.started && !net.host) return; pickBlessing(b.id); };
@@ -51,7 +66,18 @@ function pickBlessing(id) {
   // blessings are run-scoped and bless the whole party, P2 included
   if (id === 'iron') for (const P of allPlayers()) { P.maxHp += 30; P.hp += 30; }
   const b = BLESSINGS.find(x => x.id === id);
-  setBanner('祈 ' + b.name, 2);
+  // a bargain card carries its curse — both sims resolve it from their own
+  // (identical, seed-rolled) picks, so the wire never needs to name it
+  const pick = shrine && shrine.picks && shrine.picks.find(p => p.bless.id === id);
+  const c = pick && pick.curse;
+  if (c) {
+    game.curses.push(c.id);
+    if (c.id === 'frail') for (const P of allPlayers()) {   // The Glass bites at once
+      P.maxHp = Math.max(10, Math.round(P.maxHp * .5));
+      P.hp = Math.min(P.hp, P.maxHp);
+    }
+    setBanner(`祈 ${b.name} · 呪 ${c.name} — the bargain is struck`, 2.6);
+  } else setBanner('祈 ' + b.name, 2);
   if (shrine) {
     puff(shrine.x, shrine.y, 'rgba(168,132,58,.6)', 14);
     particles.push({ kind: 'ring', x: shrine.x, y: shrine.y, t: 0, life: .6,
@@ -125,7 +151,8 @@ function updateHazards(dt) {
       if (P.iT <= 0 && !P.dodgeInv &&
           dist(P.x, P.y, f.x, f.y) < f.r - 4) {
         const ang = Math.atan2(P.y - f.y, P.x - f.x);
-        if (damageSamurai(P, Math.max(4, Math.round(6 * game.curDmgMul)), ang, false)) {
+        if (damageSamurai(P, Math.max(4, Math.round(6 * game.curDmgMul)), ang, false,
+                          'the burning ground')) {
           addText(P.x, P.y - 40, 'burned!', PAL.pigment.cinnabar, 13);
           fx('burn', { x: P.x, y: P.y });
         }
@@ -160,8 +187,9 @@ function updateAmbient(dt) {
   }
 }
 function spawnPortal(x, y, kind) {
-  portal = { x: clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
-             y: clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60),
+  const s = clearSpot(clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
+                      clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60));
+  portal = { x: s.x, y: s.y,
              kind, t: 0, armed: true,
              accent: (kind === 'merchant' || kind === 'home')
                ? GOLD : THEMES[Math.min(game.level, 4)].accent };
@@ -169,29 +197,76 @@ function spawnPortal(x, y, kind) {
 /* ---------- loot chests — the only road to the deep blades ----------
    The ROLL is seeded per save (mulberry32 over hash(save.seed,
    chestsOpened)): the Nth chest of a save always holds the same thing,
-   so scroll export/import cannot re-roll a legendary. Spawn chance is
-   plain Math.random — PvE only, so lockstep never sees any of this.   */
+   so scroll export/import cannot re-roll a legendary. Spawn-chance dice
+   ride the SIM stream (srandom) — online co-op's lockstep sims must
+   agree on every chest that falls.
+   EVERY MODE pays in lacquer now (2026-07-08c):
+     story     — first clear of a level: guaranteed (lord-biased);
+                 repeat clears: 25%
+     campaign  — lords always; stages 18% + 1.5%/stage
+     infinite  — each 5th-wave lord 40%; every 25th wave guaranteed;
+                 tier bias deepens with the wave
+     rush      — gauntlet lords 30% (stages 1–4); chaos every 5th stage
+                 guaranteed, else 15%, bias climbing by lap              */
 let chests = [];
-let chestCard = null;   // the reveal card — drawn by the HUD for a breath
+let chestCard = null;   // the reveal reel — drawn by the HUD while it spins
+// the carousel: ~12 tiles scroll past, ease-out cubic, land dead-center
+const REEL = { spin: 2.3, hold: 2.5, land: 16, len: 20, step: 72 };
+function reelCenterAt(t) {
+  const p = clamp(t / REEL.spin, 0, 1);
+  return (REEL.land - 12.4) + 12.4 * (1 - Math.pow(1 - p, 3));
+}
+/* keep the wayside fixtures from stacking: nudge a spawn point until it
+   stands clear of the portal, the stall, the shrine and every unopened
+   chest — sim-stream dice only, so both lockstep sims nudge alike */
+function clearSpot(x, y) {
+  const MIN = 115;
+  const others = [];
+  if (portal) others.push([portal.x, portal.y]);
+  if (merchant) others.push([merchant.x, merchant.y]);
+  if (shrine) others.push([shrine.x, shrine.y]);
+  for (const c of chests) if (!c.opened) others.push([c.x, c.y]);
+  for (let tries = 0; tries < 12; tries++) {
+    let moved = false;
+    for (const [ox, oy] of others) {
+      const d = dist(x, y, ox, oy);
+      if (d < MIN) {
+        const a = d < 1 ? rand(0, TAU) : Math.atan2(y - oy, x - ox);
+        x = ox + Math.cos(a) * MIN;
+        y = oy + Math.sin(a) * MIN;
+        moved = true;
+      }
+    }
+    x = clamp(x, ARENA.x + 60, ARENA.x + ARENA.w - 60);
+    y = clamp(y, ARENA.y + 70, ARENA.y + ARENA.h - 70);
+    if (!moved) break;
+  }
+  return { x, y };
+}
 function rollChest(p, bias) {
-  chests.push({
-    x: clamp(p.x + rand(-70, 70), ARENA.x + 50, ARENA.x + ARENA.w - 50),
-    y: clamp(p.y + rand(-50, 50), ARENA.y + 60, ARENA.y + ARENA.h - 60),
-    t: 0, bias: bias || 0, opened: false,
-  });
+  const s = clearSpot(
+    clamp(p.x + rand(-70, 70), ARENA.x + 50, ARENA.x + ARENA.w - 50),
+    clamp(p.y + rand(-50, 50), ARENA.y + 60, ARENA.y + ARENA.h - 60));
+  chests.push({ x: s.x, y: s.y, t: 0, bias: bias || 0, opened: false });
   setBanner('a lacquer chest remains', 1.6);
   playSfx('thunk');
 }
 function openChest(c) {
   c.opened = true;
   const rng = mulberry32(hash2(save.seed, ++save.chestsOpened));
-  const table = DROP_TABLES[Math.min(2,
-    (game.map >= 4 ? 2 : game.map >= 2 ? 1 : 0) + c.bias)];
+  // the tier table listens to the mode: campaign/story climb by map/level,
+  // the endless modes speak entirely through the roll's bias argument
+  const base = game.mode === 'campaign' ? (game.map >= 4 ? 2 : game.map >= 2 ? 1 : 0)
+             : game.mode === 'level' ? (game.level >= 5 ? 2 : game.level >= 3 ? 1 : 0)
+             : 0;
+  const table = DROP_TABLES[Math.min(2, base + c.bias)];
   const r = rng();
   let tier = r < table.legendary ? 'legendary'
            : r < table.legendary + table.pure ? 'pure' : 'worn';
-  if (save.chestKey) {   // a merchant key vouches for at least a Pure pull
-    if (tier === 'worn') tier = 'pure';
+  // a merchant key vouches for at least a Pure pull — and is spent only
+  // when it actually has to vouch; a natural Pure+ roll leaves it on the belt
+  if (save.chestKey && tier === 'worn') {
+    tier = 'pure';
     save.chestKey = false;
   }
   const pool = CHEST_POOL[tier];
@@ -199,36 +274,57 @@ function openChest(c) {
   const item = WEAPONS[id] || BOWS[id];
   const isBow = !!BOWS[id];
   const ownedList = isBow ? save.bowsOwned : save.owned;
+  // the burst stays NEUTRAL — no kanji, no tier color: the carousel keeps
+  // the secret until the reel stops turning
   inkSplat(c.x, c.y);
-  particles.push({ kind: 'glyph', ch: item.kanji,
-    color: tier === 'legendary' ? GOLD : INK,
-    x: c.x, y: c.y - 20, vx: 0, vy: -24, t: 0, life: 1.2, size: 44, misted: false });
+  particles.push({ kind: 'glyph', ch: '宝', color: 'rgba(168,132,58,.9)',
+    x: c.x, y: c.y - 20, vx: 0, vy: -24, t: 0, life: .9, size: 40, misted: false });
   particles.push({ kind: 'ring', x: c.x, y: c.y, t: 0, life: .5,
-    color: tier === 'legendary' ? 'rgba(245,194,66,.8)' : 'rgba(168,132,58,.6)',
-    r0: 10, r1: 120, w: 3 });
+    color: 'rgba(168,132,58,.6)', r0: 10, r1: 120, w: 3 });
   const isNew = !ownedList.includes(id);
+  let bannerText, landSfx;
   if (isNew) {
     ownedList.push(id);
-    setBanner(`${RARITY[tier].kanji} ${RARITY[tier].name} — ${item.kanji} ${item.name} joins the arsenal`, 3);
+    bannerText = `${RARITY[tier].kanji} ${RARITY[tier].name} — ${item.kanji} ${item.name} joins the arsenal`;
+    landSfx = tier === 'worn' ? 'buy' : 'achieve';
     if (tier === 'legendary') award('legend');
     if (WEAPON_ORDER.every(wid => save.owned.includes(wid))) award('allSwords');
   } else {
     // duplicates melt into shards of temper — no drop is ever dead
     const shards = Math.round(xpForLevel(wxpLvl(id)) * .6);
     grantWeaponXP(id, shards);
-    setBanner(`${item.kanji} ${item.name} again — the duplicate melts into temper`, 2.4);
+    bannerText = `${item.kanji} ${item.name} again — the duplicate melts into temper`;
+    landSfx = 'buy';
   }
-  chestCard = { t: 0, item, tier, isNew, isBow };
-  playSfx(tier === 'worn' ? 'buy' : 'achieve');
-  freeze(.08); shake(5);
+  // the reveal reel: filler tiles from the whole arsenal (cosmetic die —
+  // each client may see different filler; only the landing tile is law)
+  const ids = WEAPON_ORDER.concat(BOW_ORDER);
+  const reel = [];
+  for (let i = 0; i < REEL.len; i++)
+    reel.push(i === REEL.land ? id : ids[Math.floor(crand(0, ids.length))]);
+  chestCard = { t: 0, item, tier, isNew, isBow, reel, lastIdx: -1, bannerText, landSfx };
+  playSfx('thunk');
+  shake(3);
   persistSave();
 }
 function updateChests(dt) {
   for (const c of chests) c.t += dt;
   chests = chests.filter(c => !c.opened);
   if (chestCard) {
-    chestCard.t += dt;
-    if (chestCard.t > 2.8) chestCard = null;
+    const cc = chestCard;
+    const was = cc.t;
+    cc.t += dt;
+    if (cc.t < REEL.spin) {   // the reel clicks past the marker, tile by tile
+      const idx = Math.round(reelCenterAt(cc.t));
+      if (idx !== cc.lastIdx) { cc.lastIdx = idx; playSfx('tick'); }
+    }
+    if (was < REEL.spin && cc.t >= REEL.spin) {   // the reel lands
+      setBanner(cc.bannerText, 2.2);
+      playSfx(cc.landSfx);
+      freeze(.07);
+      shake(cc.tier === 'legendary' ? 6 : 3);
+    }
+    if (cc.t > REEL.spin + REEL.hold) chestCard = null;
   }
 }
 
@@ -276,19 +372,27 @@ function updateTransition(dt) {
 }
 function tryInteract() {
   if (game.state !== 'playing') return;
-  if (merchant && dist(player.x, player.y, merchant.x, merchant.y) < 85) { openShop(); return; }
-  if (shrine && dist(player.x, player.y, shrine.x, shrine.y) < 80) { openShrine(); return; }
+  // the NEAREST thing in reach answers E — fixtures standing close
+  // together can no longer shadow one another (stall over chest, etc.)
+  const opts = [];
+  const add = (x, y, r, go) => {
+    const d = dist(player.x, player.y, x, y);
+    if (d < r) opts.push({ d, go });
+  };
+  if (merchant) add(merchant.x, merchant.y, 85, openShop);
+  if (shrine) add(shrine.x, shrine.y, 80, openShrine);
   for (const c of chests)
-    if (!c.opened && dist(player.x, player.y, c.x, c.y) < 70) { openChest(c); return; }
+    if (!c.opened) add(c.x, c.y, 70, () => openChest(c));
   if (game.mode === 'tomb' && game.tomb && game.tomb.phase === 'choose') {
-    if (tombAltar && dist(player.x, player.y, tombAltar.x, tombAltar.y) < 85) {
-      openRebirth(); return;
-    }
+    if (tombAltar) add(tombAltar.x, tombAltar.y, 85, openRebirth);
     for (const tb of tombTablets)
-      if (dist(player.x, player.y, tb.x, tb.y) < 80) { startTombTrial(tb.track); return; }
+      add(tb.x, tb.y, 80, () => startTombTrial(tb.track));
   }
-  if (game.mode === 'training' && kyudoStand &&
-      dist(player.x, player.y, kyudoStand.x, kyudoStand.y) < 80) { startKyudoRite(); return; }
+  if (game.mode === 'training' && kyudoStand)
+    add(kyudoStand.x, kyudoStand.y, 80, startKyudoRite);
+  if (!opts.length) return;
+  opts.sort((a, b) => a.d - b.d);
+  opts[0].go();
 }
 
 // gentle body separation so enemies never stack into one blob

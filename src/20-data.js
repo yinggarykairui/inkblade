@@ -1,8 +1,13 @@
 /* ---------- progression curves & rarity — THE BALANCE IDENTITY ----------
-   World: M(n) = 1.15^(n-1) over 5 maps × 10 stages → ×942 at stage 50.
-   Player: rarity(8×) × weaponXP(1.08^30 ≈ 10×) × tomb(10×) ≈ ×805. The
-   world wins by ~17%, so the last lords stay tight fights. Knobs live HERE
-   and the harness's identity test guards the ratio (1.05..1.35).          */
+   World: M(n) = 1.15^(n-1) over 5 maps × 10 stages → ×942 at stage 50,
+   hardening a further ×1.08 per rebirth cycle.
+   Player (multiplicative): rarity(8×) × weaponXP(1.08^30 ≈ 10×) ×
+   training(1.3×) ≈ ×104 per cycle, × rebirth 1.5^c on top. The tomb and
+   rebirth-level flats land AFTER this chain and never compound with it.
+   So each cycle nets the player ×1.5/1.08 ≈ ×1.39 on the world: the gap
+   (942/104 ≈ 9×) closes around cycle 6–7 — the fifth map is the WALL the
+   cycle exists to grind down, and the last lords stay tight fights even
+   for a finished ledger. Knobs live HERE.                               */
 const STAGES_PER_MAP = 10;
 const MAP_COUNT = 5;
 function stageMult(n) { return Math.pow(1.15, n - 1); }
@@ -98,46 +103,39 @@ const WEAPON_ORDER = ['tetsu', 'ame', 'shirasagi', 'botan',
                       'kurogane', 'tsukikage', 'akaoni', 'raiko'];
 const WEAPONS = {
   tetsu: { id: 'tetsu', kanji: '鉄', name: 'Tetsu', epithet: 'Old Iron',
-    cost: 0, unlockLevel: 0,
     dmg: 12, spdMul: 1, arc: 2.3, reach: 60, stCost: 18,
     desc: 'The dojo training blade. Balanced, honest, unremarkable.' },
   ame: { id: 'ame', kanji: '雨', name: 'Ame', epithet: 'Rain',
-    cost: 150, unlockLevel: 0,
     dmg: 6, spdMul: .68, arc: 1.6, reach: 56, stCost: 9,
     desc: 'Needle-thin, tireless. Consecutive hits without a whiff quicken the blade further (up to 5 stacks).' },
   shirasagi: { id: 'shirasagi', kanji: '白鷺', name: 'Shirasagi', epithet: 'White Heron',
-    cost: 320, unlockLevel: 1,
     dmg: 8, spdMul: .78, arc: 1.7, reach: 58, stCost: 12,
     desc: 'Pale and weightless. Dodge-roll into a swing to extend its active frames — flow like water.' },
   botan: { id: 'botan', kanji: '牡丹', name: 'Botan', epithet: 'Peony',
-    cost: 320, unlockLevel: 1,
     dmg: 12, spdMul: .95, arc: 2.2, reach: 48, stCost: 16,
-    desc: 'A show blade, short but lovely. Clean hits (no damage taken for 2s) strike 40% harder.' },
+    desc: 'A show blade, short but lovely. Clean hits (no real wound for 2s — scratches under 5% are forgiven) strike 40% harder.' },
   kurogane: { id: 'kurogane', kanji: '黒鉄', name: 'Kurogane', epithet: 'The Iron Crow',
-    cost: 500, unlockLevel: 2,
     dmg: 17, spdMul: 1.25, arc: 2.8, reach: 62, stCost: 20,
     desc: 'Heavy as a crow’s omen. Every 3rd combo hit lands as a crushing crow strike.' },
   tsukikage: { id: 'tsukikage', kanji: '月影', name: 'Tsukikage', epithet: 'Moon Shadow',
-    cost: 500, unlockLevel: 3,
     dmg: 12, spdMul: 1, arc: 2.3, reach: 60, stCost: 18,
     desc: 'Drinks the light. Striking a foe mid-windup — a true punish — refunds the swing’s stamina.' },
   akaoni: { id: 'akaoni', kanji: '赤鬼', name: 'Akaoni', epithet: 'Red Demon',
-    cost: 750, unlockLevel: 4,
     dmg: 22, spdMul: 1.45, arc: 2.2, reach: 64, stCost: 24, stagger: .7,
     desc: 'Cruel and slow. Hits stagger unarmored foes, cancelling their attacks — but a whiff leaves you wide open.' },
   raiko: { id: 'raiko', kanji: '雷光', name: 'Raiko', epithet: 'Thunder Child',
-    cost: 1200, unlockLevel: 5, legendary: true,
+    legendary: true,
     dmg: 15, spdMul: .88, arc: 2.4, reach: 62, stCost: 18,
     desc: 'Legendary. Killing blows arc chain lightning to a nearby foe; dodge-roll into a swing to charge it white-hot.' },
   // not sold, not earned — unsealed only by the admin code on the title scroll
   fudemaru: { id: 'fudemaru', kanji: '筆', name: 'Fudemaru', epithet: 'The Brush That Unwrites',
-    cost: 0, unlockLevel: 0, admin: true,
+    admin: true,
     dmg: 0, spdMul: 1, arc: 1.5, reach: 70, stCost: 0,
     desc: 'ADMIN. Tap: 火 burns a cone clean. Dodge-tap: 雷 storms through every foe. Hold: 無 stills the world. Hold longer: 命 restores all. Never winded, always charged.' },
 };
 // posture damage per hit, by blade: fast-weak blades chip stances quickly,
 // the heavy demon blade cracks them outright
-const WPN_POSTURE = { tetsu: 10, ame: 13, shirasagi: 9, botan: 10,
+const WPN_POSTURE = { tetsu: 10, ame: 11, shirasagi: 9, botan: 10,
   kurogane: 15, tsukikage: 10, akaoni: 22, raiko: 11, fudemaru: 0 };
 // 奥義 neon per blade — [primary, secondary] for the surge ribbon and meter
 const WPN_NEON = {
@@ -163,41 +161,28 @@ function weaponNeon(id) { return WPN_NEON[id] || ['#00ffff', '#d946ef']; }
 const BOW_ORDER = ['shortbow', 'longbow', 'repeater', 'firebow', 'stormbow'];
 const BOWS = {
   shortbow: { id: 'shortbow', kanji: '小弓', name: 'Koyumi', epithet: 'The First String',
-    cost: 0, unlockLevel: 0,
     draw: .4, dmg: 11, speed: 520, stCost: 12,
     desc: 'A hunter’s shortbow. Quick to bend, honest in flight — the first string every archer learns.' },
   longbow: { id: 'longbow', kanji: '大弓', name: 'Ōyumi', epithet: 'The Patient Arc',
-    cost: 400, unlockLevel: 1, pierce: 1,
+    pierce: 1,
     draw: .95, dmg: 26, speed: 660, stCost: 20,
     desc: 'Slow to bend, cruel to receive. A drawn shaft passes through one foe and finds the next.' },
   repeater: { id: 'repeater', kanji: '連弩', name: 'Rendō', epithet: 'Three Strings',
-    cost: 600, unlockLevel: 2, burst: 3,
+    burst: 3,
     draw: .22, dmg: 6, speed: 470, stCost: 17,
     desc: 'Three strings, one release — a rattling three-arrow burst. Weak shafts, and the lungs pay dearly for the speed.' },
   firebow: { id: 'firebow', kanji: '火矢', name: 'Hiya', epithet: 'The Ground Remembers',
-    cost: 800, unlockLevel: 3, burn: true,
+    burn: true,
     draw: .6, dmg: 13, speed: 540, stCost: 15,
     desc: 'Pitch-wrapped arrowheads. Where a shaft lands the ground remembers — a patch of flame that bites all who stand in it.' },
   stormbow: { id: 'stormbow', kanji: '嵐弓', name: 'Arashi', epithet: 'The Sky Answers',
-    cost: 1500, unlockLevel: 5, split: 3, legendary: true,
+    split: 3, legendary: true,
     draw: .85, dmg: 16, speed: 600, stCost: 18,
     desc: 'Legendary. Bend it fully and the sky answers — one arrow leaves the string, three arrive in a spreading fan.' },
 };
 function currentBow() { return BOWS[save.bowEquipped] || BOWS.shortbow; }
-function bowUnlocked(b) { return save.maxLevelCleared >= b.unlockLevel; }
-// sword mastery: 5 boss kills while a blade is drawn unlocks its hidden perk
+// sword mastery: killing blows on lords, landed with the drawn blade
 function masteryOf(id) { return (save.mastery && save.mastery[id]) || 0; }
 function isMastered(id) { return masteryOf(id) >= 5; }
 function currentWeapon() { return WEAPONS[game.equipped]; }
-function purchasedCount() {
-  let n = 0;
-  for (const id of save.owned) if (id !== 'tetsu') n++;
-  return n;
-}
-function weaponUnlocked(w) {
-  if (w.admin) return game.adminUnlocked;
-  // gated by the highest story level cleared (persistent)
-  if (w.id === 'raiko') return save.maxLevelCleared >= 5 || purchasedCount() >= 2;
-  return save.maxLevelCleared >= w.unlockLevel;
-}
 

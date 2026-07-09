@@ -97,6 +97,8 @@ function onPerfectDodge(pl) {
     save.stats.perfectDodges++;
     addUlt(10);   // a clean read feeds the 奥義 meter
     award('firstPerfect');
+    // a landed roll earns the next lesson: the parry
+    hintOnce('parry', 'C — a parry as the blow lands turns it aside and opens a riposte');
   }
   addText(pl.x, pl.y - 26, 'perfect dodge!', GOLD, 14);
   if (hasBless('mend')) pl.hp = Math.min(pl.maxHp, pl.hp + 6);
@@ -139,6 +141,7 @@ function makeP2(bladeId, bowId) {
     dodgeInv: false, dodgeRecoverT: 0, flashT: 0, regenDelay: 0,
     lastDodgeStart: -99, lastParryStart: -99, lastHurtAt: -99,
     swingDir: 1, attackId: 0, ameStacks: 0,
+    resolve: 0,     // 志 — run-scoped: each fallen lord steels the guest blade
     stance: 'sword', bowDraw: null, bowLatch: false,
     ultArmor: false, ultCounter: false,
     hollowT: 0, hollowSpent: false,
@@ -151,7 +154,10 @@ function makeP2(bladeId, bowId) {
 }
 function refreshPlayerStats() {  // after buying training mid-session
   const hpFrac = player.hp / player.maxHp, stFrac = player.st / player.maxSt;
-  player.maxHp = Math.round((upgMaxHp() + tombHp() + 10 * rebirthLevel()) * rebirthMult());
+  // The Glass holds through the whole run — mid-run training can't shed it
+  const frail = game.curses.includes('frail');
+  player.maxHp = Math.round((upgMaxHp() + tombHp() + 10 * rebirthLevel())
+                            * rebirthMult() * (frail ? .5 : 1));
   player.maxSt = upgMaxSt(); player.speed = upgSpeed();
   player.hp = Math.round(player.maxHp * Math.max(hpFrac, 0));
   player.st = player.maxSt * stFrac;
@@ -196,16 +202,21 @@ function startAttackFor(pl) {
   const dodgeFlow = sinceDodge > 0 && sinceDodge < flowWin;
   const extended = wpn.id === 'shirasagi' && dodgeFlow;
   const charged = wpn.id === 'raiko' && dodgeFlow;
-  // the tomb ADDS attack (flat); rebirth is the only multiplier — and the
-  // second blade is duel-raw: the steel alone, no ledger behind it
+  // the tomb ADDS attack — truly flat, added AFTER the vertical multipliers
+  // so a step is always worth its face and never rides rarity/temper/surge;
+  // rebirth is the only exponential. The second blade is duel-raw: the
+  // steel alone, no ledger behind it
   let dmg = pl.p2
     ? Math.round(wpn.dmg * (weak ? .55 : 1) * (charged ? 1.5 : 1)
-                 * (hasBless('edge') ? 1.1 : 1))
-    : Math.round((wpn.dmg + tombAtk() + rebirthLevel())
+                 * (hasBless('edge') ? 1.1 : 1)
+                 * (1 + .15 * (pl.resolve || 0)))   // 志 the lords remember
+
+    : Math.round((wpn.dmg + rebirthLevel())
                  * upgDmgMul() * (weak ? .55 : 1) * (charged ? 1.5 : 1)
                  * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1)
                  * (surge ? 2 : 1) * rebirthMult()
-                 * rarityMult(wpn.id) * wxpMult(wpn.id));   // the vertical tracks
+                 * rarityMult(wpn.id) * wxpMult(wpn.id))    // the vertical tracks
+      + tombAtk();                                          // the flat one
   let riposte = false;
   if (pl.riposteT > 0) {       // the parry's answer — one empowered stroke
     riposte = true;
@@ -260,7 +271,7 @@ function startDodgeFor(pl, mx, my) {
 }
 function startDodge(mx, my) { startDodgeFor(player, mx, my); }
 
-function damageSamurai(pl, dmg, ang, heavy) {
+function damageSamurai(pl, dmg, ang, heavy, srcName) {
   if (pl.downed || pl.iT > 0 || pl.dodgeInv || game.state !== 'playing') return false;
   // 月ノ答 — the counter-stance drinks the blow and answers it (P1's art)
   if (pl.ultCounter && game.ult.run && !pl.p2) {
@@ -268,6 +279,11 @@ function damageSamurai(pl, dmg, ang, heavy) {
   }
   if (!pl.p2 && charmed('oni')) dmg = Math.round(dmg * 1.2);   // the Oni exacts its price
   if (pl.hollowT > 0) dmg = Math.round(dmg * 1.25);   // 虚 an empty chest guards nothing
+  // telegraph fairness holds even against the deep curve: no single blow
+  // takes more than 40% of a samurai's health — three mistakes, never one
+  dmg = Math.min(dmg, Math.max(10, Math.round(pl.maxHp * .4)));
+  // remember the blow — the death scroll names what ended the trial
+  game.lastHitDesc = { name: srcName || 'a blow', dmg };
   pl.hp -= dmg;
   game.levelDamageTaken += dmg;
   pl.iT = .9; pl.flashT = .3;
@@ -284,7 +300,11 @@ function damageSamurai(pl, dmg, ang, heavy) {
   }
   game.combo = 0;
   setStacks(pl, 0);
-  if (pl.p2) pl.lastHurtAt = game.time; else game.lastHurtAt = game.time;
+  // Botan's clean state forgives chip scratches — only a real wound
+  // (>5% of max health) resets the 2s clean-hit clock
+  if (dmg > pl.maxHp * .05) {
+    if (pl.p2) pl.lastHurtAt = game.time; else game.lastHurtAt = game.time;
+  }
   if (!pl.p2) adapt.taken++;
   shake(heavy ? 8 : 4.5); freeze(heavy ? .09 : .05);
   sparks(pl.x, pl.y, ang, RED, 8);
@@ -316,7 +336,9 @@ function damageSamurai(pl, dmg, ang, heavy) {
   }
   return true;
 }
-function damagePlayer(dmg, ang, heavy) { return damageSamurai(player, dmg, ang, heavy); }
+function damagePlayer(dmg, ang, heavy, srcName) {
+  return damageSamurai(player, dmg, ang, heavy, srcName);
+}
 // wave cleared: the fallen stand back up at half strength
 function reviveDowned() {
   for (const P of allPlayers()) {
@@ -390,6 +412,7 @@ function updateSamurai(pl, dt) {
   if (pl.st <= 0.01 && !pl.hollowSpent) {
     pl.hollowSpent = true;
     pl.hollowT = 2;
+    if (!pl.p2) hintOnce('breathe', 'M — hold to breathe: stillness refills the lungs three times as fast');
     addText(pl.x, pl.y - 32, '虚 hollow!', RED, 14);
     particles.push({ kind: 'ring', x: pl.x, y: pl.y, t: 0, life: .5,
       color: 'rgba(43,35,32,.5)', r0: 10, r1: 46, w: 2 });
@@ -408,8 +431,14 @@ function updateSamurai(pl, dt) {
     pl.bowDraw = null;
     if (runEntityUlt(game.ult.run, playerUltActor(), dt)) {
       game.ult.run = null;
-      game.ult.buffT = ULT_BUFF_PVE;   // the art spoken, the surge answers
-      game.ult.meter = game.ult.max;   // stays full visually; HUD drains it as duration
+      if (ultUnlocked()) {
+        game.ult.buffT = ULT_BUFF_PVE;   // the art spoken, the surge answers
+        game.ult.meter = game.ult.max;   // stays full visually; HUD drains it as duration
+      } else {
+        // before the first rebirth the art speaks alone — no surge follows
+        game.ult.meter = 0;
+        setBanner('the art is spoken — 転生 be reborn to wake the INK SURGE', 2.2);
+      }
     }
     pl.kbx *= Math.exp(-8 * dt); pl.kby *= Math.exp(-8 * dt);
     pl.x += pl.kbx * dt; pl.y += pl.kby * dt;
@@ -515,6 +544,7 @@ function updateSamurai(pl, dt) {
             const wasWinding = e.state === 'windup' || e.state === 'aim';
             game.combo++;
             game.comboPop = .25;
+            game.lastComboAt = game.time;
             if (game.combo >= 15) award('combo15');
             let dmg = a.dmg;
             // broken stance: every stroke lands as a critical
@@ -542,7 +572,7 @@ function updateSamurai(pl, dt) {
               ? wpn.stagger + (wpn.id === 'akaoni' && !pl.p2 && isMastered('akaoni') ? .3 : 0)
               : undefined;
             e.hurt(dmg, ang, stagger,
-                   Math.round(pDmg + (pl.p2 ? 0 : tombPosture())), pl);
+                   Math.round(pDmg + (pl.p2 ? 0 : tombPosture())), pl, wpn.id);
             if (!pl.p2) {
               addUlt(3.5);   // landed strokes fill the 奥義 meter
               // weapon XP, normalized by the world curve — honest fights feed the blade

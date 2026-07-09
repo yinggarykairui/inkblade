@@ -41,15 +41,13 @@ function addUlt(n) {
   // even a sealed meter fills — wanting is the engine of the cycle
   if (game.ult.run || game.ult.buffT > 0 || game.mode === 'duel') return;
   game.ult.meter = Math.min(game.ult.max, game.ult.meter + n);
+  if (game.ult.meter >= game.ult.max)
+    hintOnce('art', 'R — the meter is full: speak the blade’s 奥義 art');
 }
 function activateUlt() {
   if (game.state !== 'playing' || player.hp <= 0 || game.mode === 'duel') return;
-  // the seal holds in real trials — but the training yard is a sandbox:
-  // learn every art against the straw before the cycle earns it for real
-  if (!ultUnlocked() && game.mode !== 'training') {
-    addText(player.x, player.y - 30, '奥義 sealed — 転生 be reborn to open the gate', RED, 13);
-    return;
-  }
+  // the ART answers any full meter, from the first hour — what the first
+  // rebirth opens is the INK SURGE that follows it (see updateSamurai)
   if (!ultReady()) return;
   // the art always ends on steel: a drawn bow snaps back to the blade
   if (player.stance === 'bow') { player.stance = 'sword'; player.bowDraw = null; }
@@ -160,14 +158,15 @@ function playerUltActor() {
     },
     hit(t, dmg, ang, o) {
       o = o || {};
-      game.combo++; game.comboPop = .25;
-      t.hurt(dmg, ang, o.stagger, o.posture != null ? o.posture : 14);
+      game.combo++; game.comboPop = .25; game.lastComboAt = game.time;
+      t.hurt(dmg, ang, o.stagger, o.posture != null ? o.posture : 14,
+             player, game.equipped);
       if (o.knock && !t.dead) { t.kbx += Math.cos(ang) * o.knock; t.kby += Math.sin(ang) * o.knock; }
       sparks(t.x, t.y, ang, weaponNeon(game.equipped)[0], 8);
     },
     unwrite(t, ang) {   // the brush's privilege: lords burn, the rest vanish
-      game.combo++; game.comboPop = .25;
-      if (t.isBoss) t.hurt(55, ang, .6, 40); else forceKill(t);
+      game.combo++; game.comboPop = .25; game.lastComboAt = game.time;
+      if (t.isBoss) t.hurt(55, ang, .6, 40, player, 'fudemaru'); else forceKill(t);
     },
   };
 }
@@ -545,7 +544,7 @@ function updateUltWaves(dt) {
         if (t.dead || t.state === 'spawn' || w.hit.includes(t)) continue;
         if (dist(w.x, w.y, t.x, t.y) < w.r + t.r) {
           w.hit.push(t);
-          t.hurt(w.dmg, w.ang, .45, 20);
+          t.hurt(w.dmg, w.ang, .45, 20, w.owner, 'raiko');
           boltFX(w.x, w.y, t.x, t.y);
         }
       }

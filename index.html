@@ -32,15 +32,22 @@
     border:3px solid rgba(43,35,32,.4);border-radius:6px;}
   .panel{background:var(--parchment);border:4px solid var(--ink);padding:34px 48px;
     max-width:640px;text-align:center;color:var(--ink);
-    box-shadow:8px 8px 0 rgba(43,35,32,.55);position:relative;
+    /* drop shadow + an aged vignette breathing in from the paper's edges */
+    box-shadow:8px 8px 0 rgba(43,35,32,.55),
+      inset 0 0 48px rgba(93,74,50,.24), inset 0 0 9px rgba(93,74,50,.14);
+    position:relative;
     margin:auto;}   /* centers when short; the overlay scrolls when tall */
   .panel::after{content:"刃";position:absolute;right:12px;bottom:26px;color:var(--red);
     border:2px solid var(--red);padding:2px 6px;font-size:18px;opacity:.75;}
   /* hanging-scroll rollers: lacquered dowels capping each end of the paper —
      the view scrolls past the whole scroll, never over its words          */
-  .roller{position:relative;height:16px;flex:none;
-    background:linear-gradient(#4a3a2c,#241c16 55%,#3a2c20);
-    border-radius:8px;box-shadow:0 2px 5px rgba(43,35,32,.45);}
+  .roller{position:relative;height:22px;flex:none;
+    /* wood grain riding a lacquer sheen */
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,.14) 0 3px, transparent 3px 18px),
+      linear-gradient(#5a4632,#241c16 55%,#3a2c20);
+    border-radius:11px;
+    box-shadow:0 3px 6px rgba(43,35,32,.5), inset 0 2px 3px rgba(255,235,190,.16);}
   /* when the writing runs past the screen, the dowel invites a click —
      tap it and the scroll unravels (or rewinds) beneath your hand      */
   .roller.unravel{cursor:pointer;}
@@ -48,12 +55,16 @@
   @keyframes unravelPulse{
     0%,100%{box-shadow:0 -2px 5px rgba(43,35,32,.45);}
     50%{box-shadow:0 -2px 5px rgba(43,35,32,.45),0 5px 16px rgba(168,132,58,.8);}}
-  .roller::before,.roller::after{content:'';position:absolute;top:3px;width:8px;height:10px;
-    background:var(--gold);border-radius:3px;opacity:.85;}
-  .roller::before{left:7px;}
-  .roller::after{right:7px;}
-  .rollerTop{margin:-34px -48px 24px;}
-  .rollerBot{margin:24px -48px -34px;box-shadow:0 -2px 5px rgba(43,35,32,.45);}
+  /* end knobs: dark turned wood, gold-ringed, protruding past the paper */
+  .roller::before,.roller::after{content:'';position:absolute;top:50%;
+    transform:translateY(-50%);width:17px;height:17px;border-radius:50%;
+    background:radial-gradient(circle at 35% 32%, #6b4f33, #2c2016 72%);
+    border:2px solid var(--gold);box-shadow:0 2px 4px rgba(43,35,32,.5);}
+  .roller::before{left:-10px;}
+  .roller::after{right:-10px;}
+  .rollerTop{margin:-34px -58px 24px;}
+  .rollerBot{margin:24px -58px -34px;
+    box-shadow:0 -3px 6px rgba(43,35,32,.5), inset 0 -2px 3px rgba(255,235,190,.14);}
   .panel h1{font-size:44px;letter-spacing:.08em;margin-bottom:4px;}
   .panel h1 .kanji{color:var(--red);margin-right:10px;}
   .panel h2{font-size:30px;letter-spacing:.12em;margin-bottom:10px;}
@@ -63,6 +74,8 @@
   .controls{display:inline-block;text-align:left;font-size:15px;line-height:1.9;
     margin-bottom:20px;border-top:1px solid rgba(43,35,32,.3);
     border-bottom:1px solid rgba(43,35,32,.3);padding:10px 6px;}
+  /* a key and its label are one word — a line may never break between them */
+  .controls .kpair{white-space:nowrap;display:inline-block;}
   .controls kbd{display:inline-block;min-width:26px;text-align:center;border:1.5px solid var(--ink);
     padding:1px 7px;margin-right:8px;font-family:inherit;font-size:13px;background:#f5ead2;
     box-shadow:2px 2px 0 rgba(43,35,32,.4);}
@@ -100,6 +113,18 @@
   button.ghost{background:transparent;color:var(--ink);border:2px solid var(--ink);}
   button.ghost:hover{color:var(--red);border-color:var(--red);background:transparent;}
   .hint{margin-top:12px;font-size:13px;opacity:.65;}
+  /* one hero action; the meta doors are quiet ghost links beneath it */
+  button.hero{font-size:22px;padding:14px 46px;letter-spacing:.14em;}
+  .metaRow{margin-top:14px;display:flex;gap:4px 10px;justify-content:center;flex-wrap:wrap;}
+  button.metaLink{background:transparent;border:none;box-shadow:none;color:var(--ink);
+    opacity:.6;font-family:inherit;font-size:13px;letter-spacing:.08em;cursor:pointer;
+    padding:4px 8px;margin:0;border-bottom:1px solid transparent;}
+  button.metaLink:hover{opacity:1;border-bottom-color:var(--gold);transform:none;}
+  .ctrls{display:grid;grid-template-columns:auto auto;gap:2px 22px;justify-content:center;
+    text-align:left;font-size:14px;line-height:1.55;margin:6px 0 14px;}
+  .ctrls b{color:var(--gold);font-weight:600;}
+  .ctrls .csec{grid-column:1/-1;text-align:center;opacity:.6;font-size:12px;
+    letter-spacing:.12em;margin-top:7px;}
   /* --- main menu: mode + difficulty + level select --- */
   .menuLabel{font-size:12px;letter-spacing:.22em;color:var(--gold);margin:14px 0 6px;
     text-transform:uppercase;}
@@ -218,15 +243,15 @@
         <h1><span class="kanji">墨刃</span>INKBLADE</h1>
         <div class="sub">five arenas, five bosses — or an endless storm</div>
         <div class="controls">
-          <div><kbd>← ↑ → ↓ / WASD</kbd> move &nbsp; <kbd>V</kbd> slash / draw bow &nbsp;
-               <kbd>Shift</kbd> dodge-roll &nbsp; <kbd>C</kbd> parry &nbsp;
-               <kbd>Q</kbd> bow ⇄ blade &nbsp;
-               <kbd>R / Space</kbd> 奥義 ultimate &nbsp;
-               <kbd>M</kbd> meditate &nbsp; <kbd>E</kbd> talk / trade</div>
-          <div style="font-size:12px;opacity:.75;">watch the
-            <span style="color:var(--red)">red arcs</span> — every strike is telegraphed.
-            <span style="color:var(--gold)">honor</span> falls only from slain bosses:
-            gather the golden orbs</div>
+          <div>
+            <span class="kpair"><kbd>WASD</kbd> move</span> ·
+            <span class="kpair"><kbd>V</kbd> slash</span> ·
+            <span class="kpair"><kbd>Shift</kbd> dodge-roll</span> ·
+            <span class="kpair"><kbd>C</kbd> parry</span> ·
+            <span class="kpair"><kbd>Q</kbd> bow ⇄ blade</span>
+          </div>
+          <div style="font-size:12px;opacity:.72;">the rest is taught as you fight ·
+            <span class="kpair">full scroll on <kbd>Esc</kbd></span></div>
         </div>
         <div class="menuLabel">— mode —</div>
         <div class="modeRow">
@@ -322,14 +347,15 @@
           <div id="curseDesc"></div>
         </div>
         <div style="margin-top:18px;">
-          <button id="btnStart">BEGIN&nbsp;TRIAL</button>
-          <button id="btnMerchantMenu" class="ghost">視 THE&nbsp;MERCHANT</button>
-          <button id="btnRecords" class="ghost">巻 RECORDS</button>
-          <button id="btnTraining" class="ghost">稽古 TRAINING</button>
-          <button id="btnTomb" class="ghost">墓 THE&nbsp;TOMB</button>
-          <button id="btnRebirthMenu" class="ghost" style="display:none;">転生 REBIRTH</button>
+          <button id="btnStart" class="hero">始 BEGIN — Enter</button>
         </div>
-        <div class="hint">press Enter to begin</div>
+        <div class="metaRow">
+          <button id="btnTraining" class="metaLink">稽古 training</button>
+          <button id="btnMerchantMenu" class="metaLink">視 merchant</button>
+          <button id="btnTomb" class="metaLink">墓 tomb</button>
+          <button id="btnRebirthMenu" class="metaLink" style="display:none;">転生 rebirth</button>
+          <button id="btnRecords" class="metaLink">巻 records</button>
+        </div>
         <div id="menuRecords"></div>
         <div id="sealBox">
           <input id="sealInput" type="text" maxlength="24"
@@ -426,6 +452,14 @@
       <div class="panel">
         <h2>間 PAUSED</h2>
         <div class="sub">the blade rests — the ink waits</div>
+        <div class="ctrls">
+          <span><b>WASD / arrows</b> move</span><span><b>V</b> / click — attack · hold draws the bow</span>
+          <span><b>Shift</b> dodge roll</span><span><b>C</b> parry</span>
+          <span><b>Q</b> swap 刀/弓 stance</span><span><b>R</b> / Space — 奥義 art</span>
+          <span><b>M</b> (hold) meditate</span><span><b>E</b> interact</span>
+          <span class="csec">二人 CO-OP P2 — <b>arrows</b> move · <b>U</b> slash · <b>I</b> roll · <b>O</b> parry · <b>P</b> bow · <b>,</b> meditate</span>
+          <span class="csec">決 DUELS — P1 <b>V/B/N</b> + <b>L</b> art <b>Y</b> swap <b>Q</b> bow · P2 <b>U/I/O</b> + <b>K</b> art <b>J</b> swap <b>P</b> bow</span>
+        </div>
         <button id="btnResume">RESUME</button>
         <button id="btnAbandon" class="ghost">ABANDON&nbsp;RUN</button>
         <div class="hint">Esc to resume · honor, swords, and training are always kept</div>
@@ -1037,6 +1071,13 @@ cv.addEventListener('mousemove', e => {
 cv.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   initAudio();
+  // a mouse hand that hasn't found the setting gets told exactly once
+  if (!save.mouseAim && !save.mouseHinted && game.state === 'playing' &&
+      game.mode !== 'duel' && !netCoop() && !touch.active) {
+    save.mouseHinted = true;
+    persistSave();
+    setBanner('滑 the cursor can own the blade — enable MOUSE AIM in settings', 3.2);
+  }
   if (!mouseAimOn()) return;
   e.preventDefault();
   mouse.down = true;
@@ -1211,6 +1252,208 @@ function drawTouchUI() {
   ctx.globalAlpha = 1;
 }
 
+
+/* ---------- 掛軸 the hanging scrolls — procedural sumi-e for the menus ----
+   No asset may enter the file, so the paintings are BRUSHED at boot on
+   offscreen canvases (cosmetic dice only — never the sim stream) and hung
+   as CSS backgrounds flanking the menu panels: silk-mounted landscapes of
+   misted ridges, a pagoda, a waterfall, a calligraphy column and the red
+   seal. A parchment-grain tile is baked into every scroll panel the same
+   way. All of it wrapped in try/catch — a headless harness has no head. */
+function brushLandscape() {
+  const pw = 300, ph = 920;
+  const c = document.createElement('canvas');
+  c.width = pw; c.height = ph;
+  const g = c.getContext('2d');
+  const R = Math.random;
+  // lacquered dowels top and bottom — the painting is itself a scroll
+  const dowel = y => {
+    const grd = g.createLinearGradient(0, y, 0, y + 14);
+    grd.addColorStop(0, '#5a4632'); grd.addColorStop(.55, '#241c16');
+    grd.addColorStop(1, '#3a2c20');
+    g.fillStyle = grd;
+    g.fillRect(6, y, pw - 12, 14);
+    for (const kx of [2, pw - 16]) {           // end knobs, gold-pinned
+      g.fillStyle = '#2c2016';
+      g.beginPath(); g.arc(kx + 7, y + 7, 8, 0, TAU); g.fill();
+      g.strokeStyle = '#a8843a'; g.lineWidth = 2;
+      g.beginPath(); g.arc(kx + 7, y + 7, 8, 0, TAU); g.stroke();
+    }
+  };
+  // the silk brocade mount — the muted green of the reference
+  g.fillStyle = '#a9a583';
+  g.fillRect(0, 8, pw, ph - 16);
+  g.fillStyle = 'rgba(255,255,240,.05)';
+  for (let y = 8; y < ph - 8; y += 4) g.fillRect(0, y, pw, 1);
+  g.fillStyle = 'rgba(60,55,35,.12)';
+  for (let x = 0; x < pw; x += 7) g.fillRect(x, 8, 1, ph - 16);
+  // the paper field
+  const fx0 = 24, fy0 = 54, fw = pw - 48, fh = ph - 108;
+  g.fillStyle = '#efe7d2';
+  g.fillRect(fx0, fy0, fw, fh);
+  for (let i = 0; i < 500; i++) {              // paper mottle
+    g.fillStyle = `rgba(120,100,70,${R() * .05})`;
+    g.fillRect(fx0 + R() * fw, fy0 + R() * fh, 1 + R() * 3, 1 + R() * 3);
+  }
+  g.save();
+  g.beginPath(); g.rect(fx0, fy0, fw, fh); g.clip();
+  // six ridges, back to front — further is fainter, mist between
+  const inkAt = a => `rgba(72,80,88,${a})`;
+  let pagodaSpot = null, fallSpot = null;
+  for (let r = 0; r < 6; r++) {
+    const baseY = fy0 + fh * (.16 + .13 * r);
+    const alpha = .12 + r * .1;
+    // jagged crest polyline
+    const pts = [];
+    let x = fx0 - 20;
+    while (x < fx0 + fw + 20) {
+      pts.push([x, baseY - (18 + R() * (46 + r * 16)) * (R() < .25 ? 1.9 : 1)]);
+      x += 16 + R() * 34;
+    }
+    g.fillStyle = inkAt(alpha);
+    g.beginPath();
+    g.moveTo(fx0 - 20, baseY + fh * .16);
+    for (const [qx, qy] of pts) g.lineTo(qx, qy);
+    g.lineTo(fx0 + fw + 20, baseY + fh * .16);
+    g.closePath(); g.fill();
+    // dry-brush texture dabs riding the crest
+    g.strokeStyle = inkAt(Math.min(.5, alpha + .18));
+    g.lineWidth = 1;
+    for (const [qx, qy] of pts) {
+      if (R() < .55) continue;
+      g.beginPath();
+      g.moveTo(qx, qy + 2);
+      g.lineTo(qx - 4 - R() * 8, qy + 8 + R() * 14);
+      g.stroke();
+    }
+    // trees along the nearer crests — ink blobs on short trunks
+    if (r >= 3) {
+      for (const [qx, qy] of pts) {
+        if (R() < .6) continue;
+        g.strokeStyle = 'rgba(40,44,40,.6)';
+        g.beginPath(); g.moveTo(qx, qy); g.lineTo(qx + crand(-2, 2), qy - 7); g.stroke();
+        g.fillStyle = r === 5 && R() < .3
+          ? 'rgba(150,80,50,.55)'          // the reference's autumn embers
+          : 'rgba(48,56,48,.55)';
+        for (let b = 0; b < 3; b++) {
+          g.beginPath();
+          g.arc(qx + crand(-5, 5), qy - 8 + crand(-4, 2), 2.5 + R() * 3, 0, TAU);
+          g.fill();
+        }
+      }
+    }
+    if (r === 2) pagodaSpot = [fx0 + fw * (.3 + R() * .3), baseY - 30];
+    if (r === 4) fallSpot = [fx0 + fw * (.14 + R() * .2), baseY];
+    // mist: a soft cream band swallowing each ridge's feet
+    const mist = g.createLinearGradient(0, baseY + 6, 0, baseY + fh * .13);
+    mist.addColorStop(0, 'rgba(239,231,210,0)');
+    mist.addColorStop(.6, 'rgba(239,231,210,.8)');
+    mist.addColorStop(1, 'rgba(239,231,210,0)');
+    g.fillStyle = mist;
+    g.fillRect(fx0, baseY + 6, fw, fh * .13);
+  }
+  // the pagoda — three sweeping roofs and a finial, pure silhouette
+  if (pagodaSpot) {
+    const [px, py] = pagodaSpot;
+    g.fillStyle = 'rgba(38,42,46,.8)';
+    for (let t = 0; t < 3; t++) {
+      const w2 = 26 - t * 6, y2 = py - t * 11;
+      g.beginPath();
+      g.moveTo(px - w2, y2);
+      g.quadraticCurveTo(px, y2 - 7, px + w2, y2);
+      g.lineTo(px + w2 - 5, y2 - 5); g.lineTo(px - w2 + 5, y2 - 5);
+      g.closePath(); g.fill();
+      g.fillRect(px - w2 * .45, y2 - 11, w2 * .9, 7);
+    }
+    g.fillRect(px - 1.5, py - 40, 3, 8);
+  }
+  // the waterfall — paper shows through the near ridge in a falling thread
+  if (fallSpot) {
+    const [wx, wy] = fallSpot;
+    g.strokeStyle = 'rgba(239,231,210,.85)';
+    for (let s = 0; s < 4; s++) {
+      g.lineWidth = 3 - s * .5;
+      g.beginPath();
+      g.moveTo(wx + s * 3 - 4, wy - 16);
+      g.quadraticCurveTo(wx + s * 3 - 6 + crand(-2, 2), wy + 24, wx + s * 3 - 4, wy + 58);
+      g.stroke();
+    }
+    g.fillStyle = 'rgba(239,231,210,.5)';
+    for (let i = 0; i < 8; i++) {
+      g.beginPath();
+      g.arc(wx + crand(-8, 8), wy + 58 + crand(0, 8), 1.5 + R() * 2, 0, TAU);
+      g.fill();
+    }
+  }
+  // the calligraphy column and the artist's red seal, top-right
+  const GLYPHS = '山水雲霧月風松嵐帰道墨心静遠夢';
+  g.fillStyle = 'rgba(43,35,32,.55)';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (let col = 0; col < 2; col++) {
+    const gx = fx0 + fw - 22 - col * 20;
+    const n = col ? 5 + Math.floor(R() * 3) : 9 + Math.floor(R() * 4);
+    g.font = `${col ? 11 : 13}px Georgia,serif`;
+    for (let i = 0; i < n; i++)
+      g.fillText(GLYPHS[Math.floor(R() * GLYPHS.length)],
+                 gx + crand(-1, 1), fy0 + 22 + i * (col ? 14 : 17));
+  }
+  g.fillStyle = 'rgba(160,42,30,.8)';
+  g.fillRect(fx0 + fw - 30, fy0 + 190, 13, 13);
+  g.fillStyle = 'rgba(239,231,210,.5)';
+  g.fillRect(fx0 + fw - 27, fy0 + 193, 3, 3);
+  g.fillRect(fx0 + fw - 23, fy0 + 196, 3, 4);
+  g.restore();
+  // aged edge on the paper, then the dowels over everything
+  g.strokeStyle = 'rgba(93,74,50,.3)'; g.lineWidth = 2;
+  g.strokeRect(fx0, fy0, fw, fh);
+  dowel(0); dowel(ph - 14);
+  return c;
+}
+function brushParchmentTile() {
+  const s = 220;
+  const c = document.createElement('canvas');
+  c.width = s; c.height = s;
+  const g = c.getContext('2d');
+  const R = Math.random;
+  for (let i = 0; i < 26; i++) {               // soft age blotches
+    g.fillStyle = `rgba(139,109,66,${.02 + R() * .03})`;
+    g.beginPath(); g.arc(R() * s, R() * s, 8 + R() * 34, 0, TAU); g.fill();
+  }
+  g.lineWidth = 1;
+  for (let i = 0; i < 90; i++) {               // paper fibers
+    g.strokeStyle = `rgba(120,95,60,${.03 + R() * .05})`;
+    const x = R() * s, y = R() * s, a = R() * TAU, l = 3 + R() * 9;
+    g.beginPath(); g.moveTo(x, y);
+    g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  for (let i = 0; i < 5; i++) {                // creases and old cracks
+    g.strokeStyle = `rgba(93,74,50,${.06 + R() * .06})`;
+    let x = R() * s, y = R() * s;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 4; k++) {
+      x += crand(-26, 26); y += crand(-26, 26);
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  return c;
+}
+(function hangMenuScrolls() {
+  try {
+    const left = brushLandscape().toDataURL('image/png');
+    const right = brushLandscape().toDataURL('image/png');   // a second, different painting
+    const tile = brushParchmentTile().toDataURL('image/png');
+    const st = document.createElement('style');
+    st.textContent =
+      `#titleOverlay,#recordsOverlay,#settingsOverlay,#rebirthOverlay{` +
+      `background-image:url(${left}),url(${right});` +
+      `background-repeat:no-repeat,no-repeat;` +
+      `background-position:left 14px center,right 14px center;` +
+      `background-size:auto 86%,auto 86%;}` +
+      `.panel{background-image:url(${tile});}`;
+    document.head.appendChild(st);
+  } catch (e) { /* headless harness: no head to hang a scroll on */ }
+})();
 /* ---------- effects: particles, floating text, stains, shake, hit-stop ---------- */
 let particles = [], texts = [], stains = [];
 let ultTrail = [];   // 奥義 blade-tip ribbon points {x,y,t}
@@ -1282,7 +1525,7 @@ function chainLightning(x, y, hops = 1) {
     glow ? undefined : 'rgba(240,238,232,.95)');
   addText(best.x, best.y - best.r - 14, 'shock!',
     glow ? '#5b78c9' : 'rgba(43,35,32,.7)', 13);
-  best.hurt(14, Math.atan2(best.y - y, best.x - x), .45, 8);
+  best.hurt(14, Math.atan2(best.y - y, best.x - x), .45, 8, player, 'raiko');
   freeze(.04); shake(3);
   if (hops > 1) chainLightning(best.x, best.y, hops - 1);
 }
@@ -1532,10 +1775,15 @@ function updateEffects(dt) {
 }
 
 /* ---------- progression curves & rarity — THE BALANCE IDENTITY ----------
-   World: M(n) = 1.15^(n-1) over 5 maps × 10 stages → ×942 at stage 50.
-   Player: rarity(8×) × weaponXP(1.08^30 ≈ 10×) × tomb(10×) ≈ ×805. The
-   world wins by ~17%, so the last lords stay tight fights. Knobs live HERE
-   and the harness's identity test guards the ratio (1.05..1.35).          */
+   World: M(n) = 1.15^(n-1) over 5 maps × 10 stages → ×942 at stage 50,
+   hardening a further ×1.08 per rebirth cycle.
+   Player (multiplicative): rarity(8×) × weaponXP(1.08^30 ≈ 10×) ×
+   training(1.3×) ≈ ×104 per cycle, × rebirth 1.5^c on top. The tomb and
+   rebirth-level flats land AFTER this chain and never compound with it.
+   So each cycle nets the player ×1.5/1.08 ≈ ×1.39 on the world: the gap
+   (942/104 ≈ 9×) closes around cycle 6–7 — the fifth map is the WALL the
+   cycle exists to grind down, and the last lords stay tight fights even
+   for a finished ledger. Knobs live HERE.                               */
 const STAGES_PER_MAP = 10;
 const MAP_COUNT = 5;
 function stageMult(n) { return Math.pow(1.15, n - 1); }
@@ -1631,46 +1879,39 @@ const WEAPON_ORDER = ['tetsu', 'ame', 'shirasagi', 'botan',
                       'kurogane', 'tsukikage', 'akaoni', 'raiko'];
 const WEAPONS = {
   tetsu: { id: 'tetsu', kanji: '鉄', name: 'Tetsu', epithet: 'Old Iron',
-    cost: 0, unlockLevel: 0,
     dmg: 12, spdMul: 1, arc: 2.3, reach: 60, stCost: 18,
     desc: 'The dojo training blade. Balanced, honest, unremarkable.' },
   ame: { id: 'ame', kanji: '雨', name: 'Ame', epithet: 'Rain',
-    cost: 150, unlockLevel: 0,
     dmg: 6, spdMul: .68, arc: 1.6, reach: 56, stCost: 9,
     desc: 'Needle-thin, tireless. Consecutive hits without a whiff quicken the blade further (up to 5 stacks).' },
   shirasagi: { id: 'shirasagi', kanji: '白鷺', name: 'Shirasagi', epithet: 'White Heron',
-    cost: 320, unlockLevel: 1,
     dmg: 8, spdMul: .78, arc: 1.7, reach: 58, stCost: 12,
     desc: 'Pale and weightless. Dodge-roll into a swing to extend its active frames — flow like water.' },
   botan: { id: 'botan', kanji: '牡丹', name: 'Botan', epithet: 'Peony',
-    cost: 320, unlockLevel: 1,
     dmg: 12, spdMul: .95, arc: 2.2, reach: 48, stCost: 16,
-    desc: 'A show blade, short but lovely. Clean hits (no damage taken for 2s) strike 40% harder.' },
+    desc: 'A show blade, short but lovely. Clean hits (no real wound for 2s — scratches under 5% are forgiven) strike 40% harder.' },
   kurogane: { id: 'kurogane', kanji: '黒鉄', name: 'Kurogane', epithet: 'The Iron Crow',
-    cost: 500, unlockLevel: 2,
     dmg: 17, spdMul: 1.25, arc: 2.8, reach: 62, stCost: 20,
     desc: 'Heavy as a crow’s omen. Every 3rd combo hit lands as a crushing crow strike.' },
   tsukikage: { id: 'tsukikage', kanji: '月影', name: 'Tsukikage', epithet: 'Moon Shadow',
-    cost: 500, unlockLevel: 3,
     dmg: 12, spdMul: 1, arc: 2.3, reach: 60, stCost: 18,
     desc: 'Drinks the light. Striking a foe mid-windup — a true punish — refunds the swing’s stamina.' },
   akaoni: { id: 'akaoni', kanji: '赤鬼', name: 'Akaoni', epithet: 'Red Demon',
-    cost: 750, unlockLevel: 4,
     dmg: 22, spdMul: 1.45, arc: 2.2, reach: 64, stCost: 24, stagger: .7,
     desc: 'Cruel and slow. Hits stagger unarmored foes, cancelling their attacks — but a whiff leaves you wide open.' },
   raiko: { id: 'raiko', kanji: '雷光', name: 'Raiko', epithet: 'Thunder Child',
-    cost: 1200, unlockLevel: 5, legendary: true,
+    legendary: true,
     dmg: 15, spdMul: .88, arc: 2.4, reach: 62, stCost: 18,
     desc: 'Legendary. Killing blows arc chain lightning to a nearby foe; dodge-roll into a swing to charge it white-hot.' },
   // not sold, not earned — unsealed only by the admin code on the title scroll
   fudemaru: { id: 'fudemaru', kanji: '筆', name: 'Fudemaru', epithet: 'The Brush That Unwrites',
-    cost: 0, unlockLevel: 0, admin: true,
+    admin: true,
     dmg: 0, spdMul: 1, arc: 1.5, reach: 70, stCost: 0,
     desc: 'ADMIN. Tap: 火 burns a cone clean. Dodge-tap: 雷 storms through every foe. Hold: 無 stills the world. Hold longer: 命 restores all. Never winded, always charged.' },
 };
 // posture damage per hit, by blade: fast-weak blades chip stances quickly,
 // the heavy demon blade cracks them outright
-const WPN_POSTURE = { tetsu: 10, ame: 13, shirasagi: 9, botan: 10,
+const WPN_POSTURE = { tetsu: 10, ame: 11, shirasagi: 9, botan: 10,
   kurogane: 15, tsukikage: 10, akaoni: 22, raiko: 11, fudemaru: 0 };
 // 奥義 neon per blade — [primary, secondary] for the surge ribbon and meter
 const WPN_NEON = {
@@ -1696,43 +1937,30 @@ function weaponNeon(id) { return WPN_NEON[id] || ['#00ffff', '#d946ef']; }
 const BOW_ORDER = ['shortbow', 'longbow', 'repeater', 'firebow', 'stormbow'];
 const BOWS = {
   shortbow: { id: 'shortbow', kanji: '小弓', name: 'Koyumi', epithet: 'The First String',
-    cost: 0, unlockLevel: 0,
     draw: .4, dmg: 11, speed: 520, stCost: 12,
     desc: 'A hunter’s shortbow. Quick to bend, honest in flight — the first string every archer learns.' },
   longbow: { id: 'longbow', kanji: '大弓', name: 'Ōyumi', epithet: 'The Patient Arc',
-    cost: 400, unlockLevel: 1, pierce: 1,
+    pierce: 1,
     draw: .95, dmg: 26, speed: 660, stCost: 20,
     desc: 'Slow to bend, cruel to receive. A drawn shaft passes through one foe and finds the next.' },
   repeater: { id: 'repeater', kanji: '連弩', name: 'Rendō', epithet: 'Three Strings',
-    cost: 600, unlockLevel: 2, burst: 3,
+    burst: 3,
     draw: .22, dmg: 6, speed: 470, stCost: 17,
     desc: 'Three strings, one release — a rattling three-arrow burst. Weak shafts, and the lungs pay dearly for the speed.' },
   firebow: { id: 'firebow', kanji: '火矢', name: 'Hiya', epithet: 'The Ground Remembers',
-    cost: 800, unlockLevel: 3, burn: true,
+    burn: true,
     draw: .6, dmg: 13, speed: 540, stCost: 15,
     desc: 'Pitch-wrapped arrowheads. Where a shaft lands the ground remembers — a patch of flame that bites all who stand in it.' },
   stormbow: { id: 'stormbow', kanji: '嵐弓', name: 'Arashi', epithet: 'The Sky Answers',
-    cost: 1500, unlockLevel: 5, split: 3, legendary: true,
+    split: 3, legendary: true,
     draw: .85, dmg: 16, speed: 600, stCost: 18,
     desc: 'Legendary. Bend it fully and the sky answers — one arrow leaves the string, three arrive in a spreading fan.' },
 };
 function currentBow() { return BOWS[save.bowEquipped] || BOWS.shortbow; }
-function bowUnlocked(b) { return save.maxLevelCleared >= b.unlockLevel; }
-// sword mastery: 5 boss kills while a blade is drawn unlocks its hidden perk
+// sword mastery: killing blows on lords, landed with the drawn blade
 function masteryOf(id) { return (save.mastery && save.mastery[id]) || 0; }
 function isMastered(id) { return masteryOf(id) >= 5; }
 function currentWeapon() { return WEAPONS[game.equipped]; }
-function purchasedCount() {
-  let n = 0;
-  for (const id of save.owned) if (id !== 'tetsu') n++;
-  return n;
-}
-function weaponUnlocked(w) {
-  if (w.admin) return game.adminUnlocked;
-  // gated by the highest story level cleared (persistent)
-  if (w.id === 'raiko') return save.maxLevelCleared >= 5 || purchasedCount() >= 2;
-  return save.maxLevelCleared >= w.unlockLevel;
-}
 
 /* ---------- persistent progression (localStorage) ----------
    Carries across runs, modes, and game-overs: the honor wallet, the
@@ -1797,6 +2025,8 @@ function defaultSave() {
     shakeMul: 1,              // screen-shake intensity setting
     colorblind: false,        // high-contrast telegraph palette
     mouseAim: false,          // 360° cursor aim (PvE only; duels stay keys)
+    mouseHinted: false,       // the one-time "mouse aim exists" banner
+    seenHints: [],            // one-shot in-fight teaching, each fired once ever
     kyudo: { rank: 0, best: 0 },   // 弓道 archery rite — trained bow skill
     rebirth: { level: 0 },         // 転生 — the only exponential the player owns
   };
@@ -1813,6 +2043,7 @@ function applySaveData(d) {
   save.audio = Object.assign({ master: .8, sfx: 1, ambient: .7, muted: false }, d.audio);
   save.mastery = Object.assign({}, d.mastery);
   if (!Array.isArray(save.achievements)) save.achievements = [];
+  if (!Array.isArray(save.seenHints)) save.seenHints = [];
   if (!Array.isArray(save.charmsOwned)) save.charmsOwned = [];
   if (save.charm && !save.charmsOwned.includes(save.charm)) save.charm = null;
   if (save.charm2 && (!save.charmsOwned.includes(save.charm2) ||
@@ -1905,27 +2136,30 @@ function grantWeaponXP(id, amt) {
 }
 // Tomb of the Fallen: 10 steps per track, each ×10^(1/10) → exactly 10× capped
 /* ---------- 墓 tomb flat stats + 転生 rebirth ----------
-   THE NEW BALANCE SHAPE (2026-07-08): the tomb no longer multiplies.
-   Each hard-won step ADDS a flat stat — costs climb on a steady slope,
-   steps are uncapped, and flat gains naturally fade against the
-   world's exponential curve. The ONLY exponential the player owns is
-   rebirth: ×1.5 might and vigor per cycle. All of it PvE — duels and
-   fighters never read these.                                          */
+   THE NEW BALANCE SHAPE (2026-07-08, hardened 2026-07-08b): the tomb no
+   longer multiplies — each hard-won step ADDS a flat stat, applied AFTER
+   the damage multiplier chain (see startAttackFor), so a step is always
+   worth exactly its face. Steps stay uncapped, but the toll climbs
+   GEOMETRICALLY (×1.5 per step, matching the run-file comment): campaign
+   honor grows ~1.15^stage, so deep pockets buy a few more steps, never
+   hundreds. The ONLY exponential the player owns is rebirth: ×1.5 might
+   and vigor per cycle. All of it PvE — duels and fighters never read
+   these.                                                              */
 function tombSteps(track) { return (save.tomb && save.tomb[track]) || 0; }
 function tombAtk()     { return Math.round(tombSteps('edge')); }        // 刃 +1 attack/step
 function tombHp()      { return Math.round(tombSteps('body') * 6); }    // 体 +6 health/step
 function tombPosture() { return tombSteps('stance') * 2; }              // 姿 +2 posture/step
 function baseCrit() { return 1.5; }   // crits are a skill payoff, no longer a track
-function tombCost(track) { return Math.round(300 * (1 + .35 * tombSteps(track))); }
+function tombCost(track) { return Math.round(300 * Math.pow(1.5, tombSteps(track))); }
 // 転生 rebirth — everything burns, the arsenal and the records remain
 function rebirthLevel() { return (save.rebirth && save.rebirth.level) || 0; }
 function rebirthMult() { return Math.pow(1.5, rebirthLevel()); }
-function ultUnlocked() {   // 奥義 opens at the first rebirth; the brush is admin
-  return rebirthLevel() >= 1 || game.adminUnlocked;
-}
+function ultUnlocked() {   // the INK SURGE opens at the first rebirth; the
+  return rebirthLevel() >= 1 || game.adminUnlocked;   // brush is admin.
+}                          // The scripted ARTS themselves fire from cycle 0.
 const REBIRTH_PERKS = [
   { lvl: 1, kanji: '奥', name: 'The Gate Opens',
-    desc: '奥義 ultimate arts awaken — the meter charges, the arts answer' },
+    desc: 'the INK SURGE awakens — every spoken art now erupts into the full neon surge' },
   { lvl: 2, kanji: '視', name: 'An Old Friend',
     desc: 'the merchant knows your face — the stall stands open from birth' },
   { lvl: 3, kanji: '誉', name: 'Inheritance',
@@ -1945,8 +2179,10 @@ const REBIRTH_PERKS = [
   { lvl: 10, kanji: '金', name: 'The Golden Stroke',
     desc: 'your figure carries a stroke of gold — proof of ten lives' },
 ];
+// doRebirth is called ONLY by ascensionComplete — the 転生の道 Road of
+// Rebirth (five lords risen to the player's might, back to back) is the
+// one and only gate; there is no checkbox path to the cycle anymore
 function doRebirth() {
-  if ((save.maxLevelCleared || 0) < 5) return 'the fifth lord still stands';
   const lvl = rebirthLevel() + 1;
   // what crosses the cycle: the arsenal (and its tempering + mastery),
   // the records, the trained eye, the seal, and the settings. The chest
@@ -2033,6 +2269,17 @@ const ACHIEVEMENTS = [
   { id: 'legend',      kanji: '傳',   name: 'A Legend Unsealed',    desc: 'pull a legendary arm from a chest' },
   { id: 'tombTen',     kanji: '墓',   name: 'The Path Walked',      desc: 'walk a tomb track to its 10× end' },
 ];
+/* ---------- one-shot teaching ----------
+   The lobby teaches nothing; the blade explains itself at the moment a
+   thing first matters. Each hint fires ONCE per save, ever. Sim-driven
+   triggers, cosmetic delivery — lockstep-safe.                          */
+function hintOnce(id, txt) {
+  if (game.mode === 'duel' || save.seenHints.includes(id)) return;
+  save.seenHints.push(id);
+  persistSave();
+  setBanner(txt, 3.4);
+  playSfx('tick');
+}
 function award(id) {
   if (save.achievements.includes(id)) return;
   save.achievements.push(id);
@@ -2149,6 +2396,8 @@ function onPerfectDodge(pl) {
     save.stats.perfectDodges++;
     addUlt(10);   // a clean read feeds the 奥義 meter
     award('firstPerfect');
+    // a landed roll earns the next lesson: the parry
+    hintOnce('parry', 'C — a parry as the blow lands turns it aside and opens a riposte');
   }
   addText(pl.x, pl.y - 26, 'perfect dodge!', GOLD, 14);
   if (hasBless('mend')) pl.hp = Math.min(pl.maxHp, pl.hp + 6);
@@ -2191,6 +2440,7 @@ function makeP2(bladeId, bowId) {
     dodgeInv: false, dodgeRecoverT: 0, flashT: 0, regenDelay: 0,
     lastDodgeStart: -99, lastParryStart: -99, lastHurtAt: -99,
     swingDir: 1, attackId: 0, ameStacks: 0,
+    resolve: 0,     // 志 — run-scoped: each fallen lord steels the guest blade
     stance: 'sword', bowDraw: null, bowLatch: false,
     ultArmor: false, ultCounter: false,
     hollowT: 0, hollowSpent: false,
@@ -2203,7 +2453,10 @@ function makeP2(bladeId, bowId) {
 }
 function refreshPlayerStats() {  // after buying training mid-session
   const hpFrac = player.hp / player.maxHp, stFrac = player.st / player.maxSt;
-  player.maxHp = Math.round((upgMaxHp() + tombHp() + 10 * rebirthLevel()) * rebirthMult());
+  // The Glass holds through the whole run — mid-run training can't shed it
+  const frail = game.curses.includes('frail');
+  player.maxHp = Math.round((upgMaxHp() + tombHp() + 10 * rebirthLevel())
+                            * rebirthMult() * (frail ? .5 : 1));
   player.maxSt = upgMaxSt(); player.speed = upgSpeed();
   player.hp = Math.round(player.maxHp * Math.max(hpFrac, 0));
   player.st = player.maxSt * stFrac;
@@ -2248,16 +2501,21 @@ function startAttackFor(pl) {
   const dodgeFlow = sinceDodge > 0 && sinceDodge < flowWin;
   const extended = wpn.id === 'shirasagi' && dodgeFlow;
   const charged = wpn.id === 'raiko' && dodgeFlow;
-  // the tomb ADDS attack (flat); rebirth is the only multiplier — and the
-  // second blade is duel-raw: the steel alone, no ledger behind it
+  // the tomb ADDS attack — truly flat, added AFTER the vertical multipliers
+  // so a step is always worth its face and never rides rarity/temper/surge;
+  // rebirth is the only exponential. The second blade is duel-raw: the
+  // steel alone, no ledger behind it
   let dmg = pl.p2
     ? Math.round(wpn.dmg * (weak ? .55 : 1) * (charged ? 1.5 : 1)
-                 * (hasBless('edge') ? 1.1 : 1))
-    : Math.round((wpn.dmg + tombAtk() + rebirthLevel())
+                 * (hasBless('edge') ? 1.1 : 1)
+                 * (1 + .15 * (pl.resolve || 0)))   // 志 the lords remember
+
+    : Math.round((wpn.dmg + rebirthLevel())
                  * upgDmgMul() * (weak ? .55 : 1) * (charged ? 1.5 : 1)
                  * (charmed('oni') ? 1.2 : 1) * (hasBless('edge') ? 1.1 : 1)
                  * (surge ? 2 : 1) * rebirthMult()
-                 * rarityMult(wpn.id) * wxpMult(wpn.id));   // the vertical tracks
+                 * rarityMult(wpn.id) * wxpMult(wpn.id))    // the vertical tracks
+      + tombAtk();                                          // the flat one
   let riposte = false;
   if (pl.riposteT > 0) {       // the parry's answer — one empowered stroke
     riposte = true;
@@ -2312,7 +2570,7 @@ function startDodgeFor(pl, mx, my) {
 }
 function startDodge(mx, my) { startDodgeFor(player, mx, my); }
 
-function damageSamurai(pl, dmg, ang, heavy) {
+function damageSamurai(pl, dmg, ang, heavy, srcName) {
   if (pl.downed || pl.iT > 0 || pl.dodgeInv || game.state !== 'playing') return false;
   // 月ノ答 — the counter-stance drinks the blow and answers it (P1's art)
   if (pl.ultCounter && game.ult.run && !pl.p2) {
@@ -2320,6 +2578,11 @@ function damageSamurai(pl, dmg, ang, heavy) {
   }
   if (!pl.p2 && charmed('oni')) dmg = Math.round(dmg * 1.2);   // the Oni exacts its price
   if (pl.hollowT > 0) dmg = Math.round(dmg * 1.25);   // 虚 an empty chest guards nothing
+  // telegraph fairness holds even against the deep curve: no single blow
+  // takes more than 40% of a samurai's health — three mistakes, never one
+  dmg = Math.min(dmg, Math.max(10, Math.round(pl.maxHp * .4)));
+  // remember the blow — the death scroll names what ended the trial
+  game.lastHitDesc = { name: srcName || 'a blow', dmg };
   pl.hp -= dmg;
   game.levelDamageTaken += dmg;
   pl.iT = .9; pl.flashT = .3;
@@ -2336,7 +2599,11 @@ function damageSamurai(pl, dmg, ang, heavy) {
   }
   game.combo = 0;
   setStacks(pl, 0);
-  if (pl.p2) pl.lastHurtAt = game.time; else game.lastHurtAt = game.time;
+  // Botan's clean state forgives chip scratches — only a real wound
+  // (>5% of max health) resets the 2s clean-hit clock
+  if (dmg > pl.maxHp * .05) {
+    if (pl.p2) pl.lastHurtAt = game.time; else game.lastHurtAt = game.time;
+  }
   if (!pl.p2) adapt.taken++;
   shake(heavy ? 8 : 4.5); freeze(heavy ? .09 : .05);
   sparks(pl.x, pl.y, ang, RED, 8);
@@ -2368,7 +2635,9 @@ function damageSamurai(pl, dmg, ang, heavy) {
   }
   return true;
 }
-function damagePlayer(dmg, ang, heavy) { return damageSamurai(player, dmg, ang, heavy); }
+function damagePlayer(dmg, ang, heavy, srcName) {
+  return damageSamurai(player, dmg, ang, heavy, srcName);
+}
 // wave cleared: the fallen stand back up at half strength
 function reviveDowned() {
   for (const P of allPlayers()) {
@@ -2442,6 +2711,7 @@ function updateSamurai(pl, dt) {
   if (pl.st <= 0.01 && !pl.hollowSpent) {
     pl.hollowSpent = true;
     pl.hollowT = 2;
+    if (!pl.p2) hintOnce('breathe', 'M — hold to breathe: stillness refills the lungs three times as fast');
     addText(pl.x, pl.y - 32, '虚 hollow!', RED, 14);
     particles.push({ kind: 'ring', x: pl.x, y: pl.y, t: 0, life: .5,
       color: 'rgba(43,35,32,.5)', r0: 10, r1: 46, w: 2 });
@@ -2460,8 +2730,14 @@ function updateSamurai(pl, dt) {
     pl.bowDraw = null;
     if (runEntityUlt(game.ult.run, playerUltActor(), dt)) {
       game.ult.run = null;
-      game.ult.buffT = ULT_BUFF_PVE;   // the art spoken, the surge answers
-      game.ult.meter = game.ult.max;   // stays full visually; HUD drains it as duration
+      if (ultUnlocked()) {
+        game.ult.buffT = ULT_BUFF_PVE;   // the art spoken, the surge answers
+        game.ult.meter = game.ult.max;   // stays full visually; HUD drains it as duration
+      } else {
+        // before the first rebirth the art speaks alone — no surge follows
+        game.ult.meter = 0;
+        setBanner('the art is spoken — 転生 be reborn to wake the INK SURGE', 2.2);
+      }
     }
     pl.kbx *= Math.exp(-8 * dt); pl.kby *= Math.exp(-8 * dt);
     pl.x += pl.kbx * dt; pl.y += pl.kby * dt;
@@ -2567,6 +2843,7 @@ function updateSamurai(pl, dt) {
             const wasWinding = e.state === 'windup' || e.state === 'aim';
             game.combo++;
             game.comboPop = .25;
+            game.lastComboAt = game.time;
             if (game.combo >= 15) award('combo15');
             let dmg = a.dmg;
             // broken stance: every stroke lands as a critical
@@ -2594,7 +2871,7 @@ function updateSamurai(pl, dt) {
               ? wpn.stagger + (wpn.id === 'akaoni' && !pl.p2 && isMastered('akaoni') ? .3 : 0)
               : undefined;
             e.hurt(dmg, ang, stagger,
-                   Math.round(pDmg + (pl.p2 ? 0 : tombPosture())), pl);
+                   Math.round(pDmg + (pl.p2 ? 0 : tombPosture())), pl, wpn.id);
             if (!pl.p2) {
               addUlt(3.5);   // landed strokes fill the 奥義 meter
               // weapon XP, normalized by the world curve — honest fights feed the blade
@@ -2763,6 +3040,11 @@ class Enemy {
     if (l < 2) return;
     this.x += dx / l * sp * dt; this.y += dy / l * sp * dt;
   }
+  foeName() {   // how the death scroll speaks of this foe
+    if (this.bossName) return this.bossName;
+    const n = this.constructor.name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+    return (this.elite ? 'an elite ' : 'a ') + n;
+  }
   grabToken() {
     if (this.hasToken) return true;
     if (this.tokenPool().request(this)) { this.hasToken = true; return true; }
@@ -2796,7 +3078,8 @@ class Enemy {
           if (dist(this.x, this.y, P.x, P.y) >= 64 + P.r) continue;
           this.auraTick = .9;
           if (damageSamurai(P, Math.max(2, Math.round(3 * game.curDmgMul)),
-                            Math.atan2(P.y - this.y, P.x - this.x), false))
+                            Math.atan2(P.y - this.y, P.x - this.x), false,
+                            'a searing aura'))
             addText(P.x, P.y - 40, 'seared!', RED, 11);
         }
       }
@@ -2855,9 +3138,12 @@ class Enemy {
       if (this.hp <= 0) this.die();
     }
   }
-  hurt(dmg, ang, stun, pDmg = 8, src) {
+  hurt(dmg, ang, stun, pDmg = 8, src, arm) {
     if (this.dead || this.state === 'spawn') return;
-    if (src) this.lastHitBy = src;   // co-op: remember whose steel bit last
+    if (src) {
+      this.lastHitBy = src;      // co-op: remember whose steel bit last
+      this.lastHitArm = arm;     // …and WHICH arm — kills credit the true weapon
+    }
     // shield ashigaru: frontal blows are turned aside — flank it or break it
     if (this.shielded && this.brokenT <= 0 &&
         Math.abs(angDiff(this.face, this.angTo())) < 1.15) {
@@ -2897,9 +3183,12 @@ class Enemy {
     save.stats.kills++;
     addUlt(8);   // a felled foe feeds the 奥義 meter
     const killer = this.lastHitBy || player;
+    // credit the arm that actually landed the killing blow — a stormbow
+    // kill tempers the stormbow, never the sword resting in the other hand
+    const arm = this.lastHitArm || game.equipped;
     if (!killer.p2) {   // the second blade is progression-free
-      save.stats.bladeKills[game.equipped] = (save.stats.bladeKills[game.equipped] || 0) + 1;
-      grantWeaponXP(game.equipped, this.isBoss ? 40 : 2);   // kills sharpen the blade
+      save.stats.bladeKills[arm] = (save.stats.bladeKills[arm] || 0) + 1;
+      grantWeaponXP(arm, this.isBoss ? 40 : 2);   // kills sharpen the arm used
     }
     award('firstBlood');
     if (hasBless('reap'))   // the reaper's rhythm — stamina back on every kill
@@ -2914,8 +3203,10 @@ class Enemy {
     if (this.isBoss) {
       spawnHonorOrbs(this.x, this.y, Math.round(this.honorKill * game.honorMult));
       game.lastBossDeath = { x: this.x, y: this.y };
-      // sword mastery: lords felled while a blade is drawn temper it
-      if (game.equipped !== 'fudemaru') {
+      // sword mastery: the lord must fall to P1's OWN drawn blade — a bow
+      // kill or the second samurai's steel teaches this sword nothing
+      if (game.equipped !== 'fudemaru' && !killer.p2 && arm === game.equipped
+          && WEAPONS[arm]) {
         save.mastery[game.equipped] = (save.mastery[game.equipped] || 0) + 1;
         if (save.mastery[game.equipped] === 5) {
           setBanner('極 ' + WEAPONS[game.equipped].name + ' — MASTERED', 2.6);
@@ -2967,8 +3258,17 @@ class Enemy {
   }
   enter_windup(opts) {
     opts = opts || {};
+    let stretch = 0;
+    if (opts.dur === undefined && !opts.noDelay) stretch = adapt.extraDelay();
     this.wDur = opts.dur !== undefined ? opts.dur
-      : this.windupBase / eAggro() + (opts.noDelay ? 0 : adapt.extraDelay());
+      : this.windupBase / eAggro() + stretch;
+    // the adaptive layer plays fair in the open: a stretched windup — its
+    // counter to habitual reaction-dodgers — announces itself with a glint
+    if (stretch > 0)
+      addText(this.x, this.y - this.r - 26, '読', 'rgba(93,127,156,.85)', 12);
+    // the very first raised weapon teaches the roll
+    if (!this.ghost)
+      hintOnce('roll', 'Shift — roll THROUGH the red arc as it falls');
     this.isFeint = opts.feint || false;
     adapt.windups++;
   }
@@ -3007,11 +3307,12 @@ class Enemy {
           // too much iron behind it — the guard is crushed, dodge these
           this.didHit = true;
           P.action = null;
-          if (damageSamurai(P, Math.max(1, Math.round(this.dmg * .5)), angP, true))
+          if (damageSamurai(P, Math.max(1, Math.round(this.dmg * .5)), angP, true,
+                            this.foeName()))
             addText(P.x, P.y - 42, 'crushed!', RED, 13);
         } else this.getParried(P);
       } else if (P.iT <= 0) {
-        this.didHit = damageSamurai(P, this.dmg, angP, this.heavy);
+        this.didHit = damageSamurai(P, this.dmg, angP, this.heavy, this.foeName());
       }
     }
     if (this.stateT >= this.activeDur) { this.dropToken(); this.setState('recover'); }
@@ -3321,7 +3622,8 @@ class TombGhost extends Enemy {
         return;
       } else if (!player.dodgeInv && player.iT <= 0) {
         this.didHit = true;
-        damagePlayer(Math.max(3, Math.round(player.maxHp * .06)), this.angTo(), false);
+        damagePlayer(Math.max(3, Math.round(player.maxHp * .06)), this.angTo(), false,
+                     'a tomb flicker');
         tombGhostDown(false);
         this.die();
         return;
@@ -3679,6 +3981,16 @@ function tuneEnemy(e, m) {
   if (e.arrowDmg) e.arrowDmg = Math.round(e.arrowDmg * m.dmg);
 }
 function onBossDeath(b) {
+  // 二人 resolve: each fallen lord steels the second blade — run-scoped
+  // sim state (never a save write, lockstep-safe), +15% might and +15
+  // health per lord, capped at ten. P2 finally has a ladder to climb
+  // inside the run the world keeps escalating.
+  if (game.coop && p2 && p2.resolve < 10) {
+    p2.resolve = (p2.resolve || 0) + 1;
+    p2.maxHp += 15;
+    p2.hp = Math.min(p2.maxHp, p2.hp + 15);
+    addText(p2.x, p2.y - 32, `志 resolve ${p2.resolve} — the lord remembers`, GOLD, 13);
+  }
   shake(10); freeze(.12);
   inkSplat(b.x, b.y);
   spawnPetals(b.x, b.y, 10, 'wash', null);   // the lord falls in ink, not pigment
@@ -3760,7 +4072,8 @@ function updateShockwaves(dt) {
             onPerfectDodge(P);
           }
         } else if (P.iT <= 0) {
-          damageSamurai(P, s.dmg, Math.atan2(P.y - s.y, P.x - s.x), true);
+          damageSamurai(P, s.dmg, Math.atan2(P.y - s.y, P.x - s.x), true,
+                        'the earthbreaker ring');
         }
       }
     }
@@ -3811,15 +4124,13 @@ function addUlt(n) {
   // even a sealed meter fills — wanting is the engine of the cycle
   if (game.ult.run || game.ult.buffT > 0 || game.mode === 'duel') return;
   game.ult.meter = Math.min(game.ult.max, game.ult.meter + n);
+  if (game.ult.meter >= game.ult.max)
+    hintOnce('art', 'R — the meter is full: speak the blade’s 奥義 art');
 }
 function activateUlt() {
   if (game.state !== 'playing' || player.hp <= 0 || game.mode === 'duel') return;
-  // the seal holds in real trials — but the training yard is a sandbox:
-  // learn every art against the straw before the cycle earns it for real
-  if (!ultUnlocked() && game.mode !== 'training') {
-    addText(player.x, player.y - 30, '奥義 sealed — 転生 be reborn to open the gate', RED, 13);
-    return;
-  }
+  // the ART answers any full meter, from the first hour — what the first
+  // rebirth opens is the INK SURGE that follows it (see updateSamurai)
   if (!ultReady()) return;
   // the art always ends on steel: a drawn bow snaps back to the blade
   if (player.stance === 'bow') { player.stance = 'sword'; player.bowDraw = null; }
@@ -3930,14 +4241,15 @@ function playerUltActor() {
     },
     hit(t, dmg, ang, o) {
       o = o || {};
-      game.combo++; game.comboPop = .25;
-      t.hurt(dmg, ang, o.stagger, o.posture != null ? o.posture : 14);
+      game.combo++; game.comboPop = .25; game.lastComboAt = game.time;
+      t.hurt(dmg, ang, o.stagger, o.posture != null ? o.posture : 14,
+             player, game.equipped);
       if (o.knock && !t.dead) { t.kbx += Math.cos(ang) * o.knock; t.kby += Math.sin(ang) * o.knock; }
       sparks(t.x, t.y, ang, weaponNeon(game.equipped)[0], 8);
     },
     unwrite(t, ang) {   // the brush's privilege: lords burn, the rest vanish
-      game.combo++; game.comboPop = .25;
-      if (t.isBoss) t.hurt(55, ang, .6, 40); else forceKill(t);
+      game.combo++; game.comboPop = .25; game.lastComboAt = game.time;
+      if (t.isBoss) t.hurt(55, ang, .6, 40, player, 'fudemaru'); else forceKill(t);
     },
   };
 }
@@ -4315,7 +4627,7 @@ function updateUltWaves(dt) {
         if (t.dead || t.state === 'spawn' || w.hit.includes(t)) continue;
         if (dist(w.x, w.y, t.x, t.y) < w.r + t.r) {
           w.hit.push(t);
-          t.hurt(w.dmg, w.ang, .45, 20);
+          t.hurt(w.dmg, w.ang, .45, 20, w.owner, 'raiko');
           boltFX(w.x, w.y, t.x, t.y);
         }
       }
@@ -4659,26 +4971,41 @@ const BLESSINGS = [
   { id: 'tempo',  kanji: '律', name: 'Even Breath',     desc: '+25% stamina regen' },
   { id: 'edge',   kanji: '鋭', name: 'Whetted Edge',    desc: '+10% damage' },
 ];
-let shrine = null;   // {x, y, t} — cleared once a blessing is taken
+let shrine = null;   // {x, y, t, picks, cursed} — cleared once a blessing is taken
 function spawnShrine(x, y) {
-  shrine = {
-    x: clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
-    y: clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60),
-    t: 0,
-  };
+  // the offerings are rolled ONCE, here at spawn (sim-side, seeded stream):
+  // walking away and returning can never re-roll them, and both lockstep
+  // sims carve the same three cards.
+  // Every THIRD shrine of a run drives a bargain: each blessing arrives
+  // fused to a curse — a heavier burden, chosen mid-run with open eyes,
+  // and richer honor from the next wave on (waveMults reads curses live).
+  game.shrineN = (game.shrineN || 0) + 1;
+  const pool = BLESSINGS.filter(b => !game.blessings.includes(b.id));
+  const cursePool = game.shrineN % 3 === 0
+    ? CURSES.filter(c => !game.curses.includes(c.id)) : [];
+  const picks = [];
+  while (picks.length < 3 && pool.length) {
+    const bless = pool.splice(Math.floor(srandom() * pool.length), 1)[0];
+    const curse = cursePool.length
+      ? cursePool.splice(Math.floor(srandom() * cursePool.length), 1)[0] : null;
+    picks.push({ bless, curse });
+  }
+  const s = clearSpot(clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
+                      clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60));
+  shrine = { x: s.x, y: s.y, t: 0, picks,
+             cursed: !!(picks[0] && picks[0].curse) };
 }
 function openShrine() {
   game.state = 'shrine';
   const row = document.getElementById('blessRow');
   row.innerHTML = '';
-  const pool = BLESSINGS.filter(b => !game.blessings.includes(b.id));
-  const picks = [];
-  while (picks.length < 3 && pool.length)
-    picks.push(pool.splice(Math.floor(srandom() * pool.length), 1)[0]);
-  for (const b of picks) {
+  const picks = (shrine && shrine.picks) || [];
+  for (const p of picks) {
+    const b = p.bless;
     const btn = document.createElement('button');
     btn.className = 'blessCard';
-    btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}<span class="bd">${b.desc}</span>`;
+    btn.innerHTML = `<span class="bk">${b.kanji}</span>${b.name}<span class="bd">${b.desc}</span>` +
+      (p.curse ? `<span class="bd" style="color:var(--red)">呪 fused to ${p.curse.name} — ${p.curse.desc}</span>` : '');
     // online co-op: the shrine answers the host's hand alone — the guest's
     // sim applies the same pick when it crosses the wire
     btn.onclick = () => { if (netCoop() && net.started && !net.host) return; pickBlessing(b.id); };
@@ -4700,7 +5027,18 @@ function pickBlessing(id) {
   // blessings are run-scoped and bless the whole party, P2 included
   if (id === 'iron') for (const P of allPlayers()) { P.maxHp += 30; P.hp += 30; }
   const b = BLESSINGS.find(x => x.id === id);
-  setBanner('祈 ' + b.name, 2);
+  // a bargain card carries its curse — both sims resolve it from their own
+  // (identical, seed-rolled) picks, so the wire never needs to name it
+  const pick = shrine && shrine.picks && shrine.picks.find(p => p.bless.id === id);
+  const c = pick && pick.curse;
+  if (c) {
+    game.curses.push(c.id);
+    if (c.id === 'frail') for (const P of allPlayers()) {   // The Glass bites at once
+      P.maxHp = Math.max(10, Math.round(P.maxHp * .5));
+      P.hp = Math.min(P.hp, P.maxHp);
+    }
+    setBanner(`祈 ${b.name} · 呪 ${c.name} — the bargain is struck`, 2.6);
+  } else setBanner('祈 ' + b.name, 2);
   if (shrine) {
     puff(shrine.x, shrine.y, 'rgba(168,132,58,.6)', 14);
     particles.push({ kind: 'ring', x: shrine.x, y: shrine.y, t: 0, life: .6,
@@ -4774,7 +5112,8 @@ function updateHazards(dt) {
       if (P.iT <= 0 && !P.dodgeInv &&
           dist(P.x, P.y, f.x, f.y) < f.r - 4) {
         const ang = Math.atan2(P.y - f.y, P.x - f.x);
-        if (damageSamurai(P, Math.max(4, Math.round(6 * game.curDmgMul)), ang, false)) {
+        if (damageSamurai(P, Math.max(4, Math.round(6 * game.curDmgMul)), ang, false,
+                          'the burning ground')) {
           addText(P.x, P.y - 40, 'burned!', PAL.pigment.cinnabar, 13);
           fx('burn', { x: P.x, y: P.y });
         }
@@ -4809,8 +5148,9 @@ function updateAmbient(dt) {
   }
 }
 function spawnPortal(x, y, kind) {
-  portal = { x: clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
-             y: clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60),
+  const s = clearSpot(clamp(x, ARENA.x + 50, ARENA.x + ARENA.w - 50),
+                      clamp(y, ARENA.y + 60, ARENA.y + ARENA.h - 60));
+  portal = { x: s.x, y: s.y,
              kind, t: 0, armed: true,
              accent: (kind === 'merchant' || kind === 'home')
                ? GOLD : THEMES[Math.min(game.level, 4)].accent };
@@ -4818,29 +5158,76 @@ function spawnPortal(x, y, kind) {
 /* ---------- loot chests — the only road to the deep blades ----------
    The ROLL is seeded per save (mulberry32 over hash(save.seed,
    chestsOpened)): the Nth chest of a save always holds the same thing,
-   so scroll export/import cannot re-roll a legendary. Spawn chance is
-   plain Math.random — PvE only, so lockstep never sees any of this.   */
+   so scroll export/import cannot re-roll a legendary. Spawn-chance dice
+   ride the SIM stream (srandom) — online co-op's lockstep sims must
+   agree on every chest that falls.
+   EVERY MODE pays in lacquer now (2026-07-08c):
+     story     — first clear of a level: guaranteed (lord-biased);
+                 repeat clears: 25%
+     campaign  — lords always; stages 18% + 1.5%/stage
+     infinite  — each 5th-wave lord 40%; every 25th wave guaranteed;
+                 tier bias deepens with the wave
+     rush      — gauntlet lords 30% (stages 1–4); chaos every 5th stage
+                 guaranteed, else 15%, bias climbing by lap              */
 let chests = [];
-let chestCard = null;   // the reveal card — drawn by the HUD for a breath
+let chestCard = null;   // the reveal reel — drawn by the HUD while it spins
+// the carousel: ~12 tiles scroll past, ease-out cubic, land dead-center
+const REEL = { spin: 2.3, hold: 2.5, land: 16, len: 20, step: 72 };
+function reelCenterAt(t) {
+  const p = clamp(t / REEL.spin, 0, 1);
+  return (REEL.land - 12.4) + 12.4 * (1 - Math.pow(1 - p, 3));
+}
+/* keep the wayside fixtures from stacking: nudge a spawn point until it
+   stands clear of the portal, the stall, the shrine and every unopened
+   chest — sim-stream dice only, so both lockstep sims nudge alike */
+function clearSpot(x, y) {
+  const MIN = 115;
+  const others = [];
+  if (portal) others.push([portal.x, portal.y]);
+  if (merchant) others.push([merchant.x, merchant.y]);
+  if (shrine) others.push([shrine.x, shrine.y]);
+  for (const c of chests) if (!c.opened) others.push([c.x, c.y]);
+  for (let tries = 0; tries < 12; tries++) {
+    let moved = false;
+    for (const [ox, oy] of others) {
+      const d = dist(x, y, ox, oy);
+      if (d < MIN) {
+        const a = d < 1 ? rand(0, TAU) : Math.atan2(y - oy, x - ox);
+        x = ox + Math.cos(a) * MIN;
+        y = oy + Math.sin(a) * MIN;
+        moved = true;
+      }
+    }
+    x = clamp(x, ARENA.x + 60, ARENA.x + ARENA.w - 60);
+    y = clamp(y, ARENA.y + 70, ARENA.y + ARENA.h - 70);
+    if (!moved) break;
+  }
+  return { x, y };
+}
 function rollChest(p, bias) {
-  chests.push({
-    x: clamp(p.x + rand(-70, 70), ARENA.x + 50, ARENA.x + ARENA.w - 50),
-    y: clamp(p.y + rand(-50, 50), ARENA.y + 60, ARENA.y + ARENA.h - 60),
-    t: 0, bias: bias || 0, opened: false,
-  });
+  const s = clearSpot(
+    clamp(p.x + rand(-70, 70), ARENA.x + 50, ARENA.x + ARENA.w - 50),
+    clamp(p.y + rand(-50, 50), ARENA.y + 60, ARENA.y + ARENA.h - 60));
+  chests.push({ x: s.x, y: s.y, t: 0, bias: bias || 0, opened: false });
   setBanner('a lacquer chest remains', 1.6);
   playSfx('thunk');
 }
 function openChest(c) {
   c.opened = true;
   const rng = mulberry32(hash2(save.seed, ++save.chestsOpened));
-  const table = DROP_TABLES[Math.min(2,
-    (game.map >= 4 ? 2 : game.map >= 2 ? 1 : 0) + c.bias)];
+  // the tier table listens to the mode: campaign/story climb by map/level,
+  // the endless modes speak entirely through the roll's bias argument
+  const base = game.mode === 'campaign' ? (game.map >= 4 ? 2 : game.map >= 2 ? 1 : 0)
+             : game.mode === 'level' ? (game.level >= 5 ? 2 : game.level >= 3 ? 1 : 0)
+             : 0;
+  const table = DROP_TABLES[Math.min(2, base + c.bias)];
   const r = rng();
   let tier = r < table.legendary ? 'legendary'
            : r < table.legendary + table.pure ? 'pure' : 'worn';
-  if (save.chestKey) {   // a merchant key vouches for at least a Pure pull
-    if (tier === 'worn') tier = 'pure';
+  // a merchant key vouches for at least a Pure pull — and is spent only
+  // when it actually has to vouch; a natural Pure+ roll leaves it on the belt
+  if (save.chestKey && tier === 'worn') {
+    tier = 'pure';
     save.chestKey = false;
   }
   const pool = CHEST_POOL[tier];
@@ -4848,36 +5235,57 @@ function openChest(c) {
   const item = WEAPONS[id] || BOWS[id];
   const isBow = !!BOWS[id];
   const ownedList = isBow ? save.bowsOwned : save.owned;
+  // the burst stays NEUTRAL — no kanji, no tier color: the carousel keeps
+  // the secret until the reel stops turning
   inkSplat(c.x, c.y);
-  particles.push({ kind: 'glyph', ch: item.kanji,
-    color: tier === 'legendary' ? GOLD : INK,
-    x: c.x, y: c.y - 20, vx: 0, vy: -24, t: 0, life: 1.2, size: 44, misted: false });
+  particles.push({ kind: 'glyph', ch: '宝', color: 'rgba(168,132,58,.9)',
+    x: c.x, y: c.y - 20, vx: 0, vy: -24, t: 0, life: .9, size: 40, misted: false });
   particles.push({ kind: 'ring', x: c.x, y: c.y, t: 0, life: .5,
-    color: tier === 'legendary' ? 'rgba(245,194,66,.8)' : 'rgba(168,132,58,.6)',
-    r0: 10, r1: 120, w: 3 });
+    color: 'rgba(168,132,58,.6)', r0: 10, r1: 120, w: 3 });
   const isNew = !ownedList.includes(id);
+  let bannerText, landSfx;
   if (isNew) {
     ownedList.push(id);
-    setBanner(`${RARITY[tier].kanji} ${RARITY[tier].name} — ${item.kanji} ${item.name} joins the arsenal`, 3);
+    bannerText = `${RARITY[tier].kanji} ${RARITY[tier].name} — ${item.kanji} ${item.name} joins the arsenal`;
+    landSfx = tier === 'worn' ? 'buy' : 'achieve';
     if (tier === 'legendary') award('legend');
     if (WEAPON_ORDER.every(wid => save.owned.includes(wid))) award('allSwords');
   } else {
     // duplicates melt into shards of temper — no drop is ever dead
     const shards = Math.round(xpForLevel(wxpLvl(id)) * .6);
     grantWeaponXP(id, shards);
-    setBanner(`${item.kanji} ${item.name} again — the duplicate melts into temper`, 2.4);
+    bannerText = `${item.kanji} ${item.name} again — the duplicate melts into temper`;
+    landSfx = 'buy';
   }
-  chestCard = { t: 0, item, tier, isNew, isBow };
-  playSfx(tier === 'worn' ? 'buy' : 'achieve');
-  freeze(.08); shake(5);
+  // the reveal reel: filler tiles from the whole arsenal (cosmetic die —
+  // each client may see different filler; only the landing tile is law)
+  const ids = WEAPON_ORDER.concat(BOW_ORDER);
+  const reel = [];
+  for (let i = 0; i < REEL.len; i++)
+    reel.push(i === REEL.land ? id : ids[Math.floor(crand(0, ids.length))]);
+  chestCard = { t: 0, item, tier, isNew, isBow, reel, lastIdx: -1, bannerText, landSfx };
+  playSfx('thunk');
+  shake(3);
   persistSave();
 }
 function updateChests(dt) {
   for (const c of chests) c.t += dt;
   chests = chests.filter(c => !c.opened);
   if (chestCard) {
-    chestCard.t += dt;
-    if (chestCard.t > 2.8) chestCard = null;
+    const cc = chestCard;
+    const was = cc.t;
+    cc.t += dt;
+    if (cc.t < REEL.spin) {   // the reel clicks past the marker, tile by tile
+      const idx = Math.round(reelCenterAt(cc.t));
+      if (idx !== cc.lastIdx) { cc.lastIdx = idx; playSfx('tick'); }
+    }
+    if (was < REEL.spin && cc.t >= REEL.spin) {   // the reel lands
+      setBanner(cc.bannerText, 2.2);
+      playSfx(cc.landSfx);
+      freeze(.07);
+      shake(cc.tier === 'legendary' ? 6 : 3);
+    }
+    if (cc.t > REEL.spin + REEL.hold) chestCard = null;
   }
 }
 
@@ -4925,19 +5333,27 @@ function updateTransition(dt) {
 }
 function tryInteract() {
   if (game.state !== 'playing') return;
-  if (merchant && dist(player.x, player.y, merchant.x, merchant.y) < 85) { openShop(); return; }
-  if (shrine && dist(player.x, player.y, shrine.x, shrine.y) < 80) { openShrine(); return; }
+  // the NEAREST thing in reach answers E — fixtures standing close
+  // together can no longer shadow one another (stall over chest, etc.)
+  const opts = [];
+  const add = (x, y, r, go) => {
+    const d = dist(player.x, player.y, x, y);
+    if (d < r) opts.push({ d, go });
+  };
+  if (merchant) add(merchant.x, merchant.y, 85, openShop);
+  if (shrine) add(shrine.x, shrine.y, 80, openShrine);
   for (const c of chests)
-    if (!c.opened && dist(player.x, player.y, c.x, c.y) < 70) { openChest(c); return; }
+    if (!c.opened) add(c.x, c.y, 70, () => openChest(c));
   if (game.mode === 'tomb' && game.tomb && game.tomb.phase === 'choose') {
-    if (tombAltar && dist(player.x, player.y, tombAltar.x, tombAltar.y) < 85) {
-      openRebirth(); return;
-    }
+    if (tombAltar) add(tombAltar.x, tombAltar.y, 85, openRebirth);
     for (const tb of tombTablets)
-      if (dist(player.x, player.y, tb.x, tb.y) < 80) { startTombTrial(tb.track); return; }
+      add(tb.x, tb.y, 80, () => startTombTrial(tb.track));
   }
-  if (game.mode === 'training' && kyudoStand &&
-      dist(player.x, player.y, kyudoStand.x, kyudoStand.y) < 80) { startKyudoRite(); return; }
+  if (game.mode === 'training' && kyudoStand)
+    add(kyudoStand.x, kyudoStand.y, 80, startKyudoRite);
+  if (!opts.length) return;
+  opts.sort((a, b) => a.d - b.d);
+  opts[0].go();
 }
 
 // gentle body separation so enemies never stack into one blob
@@ -4996,7 +5412,9 @@ function updateProjectiles(dt) {
         playSfx('parry');
       } else if (P.iT <= 0) {
         const ang = Math.atan2(p.vy, p.vx);
-        if (damageSamurai(P, p.dmg || 9, ang, p.kind === 'charged')) {
+        if (damageSamurai(P, p.dmg || 9, ang, p.kind === 'charged',
+              p.kind === 'charged' ? 'a charged shot'
+              : p.kind === 'bolt' ? 'storm lightning' : 'an arrow')) {
           p.dead = true;
           if (p.chain) {   // storm-touched: the shot discharges on impact
             boltFX(p.x - p.vx * .06, p.y - p.vy * .06, P.x, P.y);
@@ -5088,17 +5506,18 @@ function playerLooseArrow(bow, heldT, pl) {
   const weak = exhaustedOf(pl) || game.curses.includes('winded');
   pl.st = Math.max(0, pl.st - bow.stCost * stamMul);
   pl.regenDelay = .6;
-  const dmgMul = (pl.p2 ? 1
+  const dmgMul = (pl.p2 ? 1 + .15 * (pl.resolve || 0)   // 志 resolve stacks
                  : upgDmgMul() * (charmed('oni') ? 1.2 : 1) * rebirthMult()
                    * rarityMult(bow.id) * wxpMult(bow.id))
                * (weak ? .55 : 1) * (hasBless('edge') ? 1.1 : 1);
-  const flatDmg = pl.p2 ? bow.dmg : bow.dmg + tombAtk() + rebirthLevel();
+  const baseDmg = pl.p2 ? bow.dmg : bow.dmg + rebirthLevel();
   // repeater: every release is a burst; stormbow: a FULL draw splits in three
   const n = bow.burst || (bow.split && power >= .95 ? bow.split : 1);
   for (let i = 0; i < n; i++) {
     const fan = !bow.burst && n > 1 ? (i - (n - 1) / 2) * .2 : 0;
+    // the tomb's flat attack lands AFTER the multipliers, same law as the blade
     spawnPArrow(pl, false, bow, pl.face + fan,
-      Math.max(1, Math.round(flatDmg * power * dmgMul)),
+      Math.max(1, Math.round(baseDmg * power * dmgMul) + (pl.p2 ? 0 : tombAtk())),
       bow.speed * (.7 + .3 * power),
       bow.burst ? i * .09 : 0);
   }
@@ -5198,7 +5617,7 @@ function updatePArrows(dt) {
           const blocked = e.shielded && e.brokenT <= 0 &&
             Math.abs(angDiff(e.face, e.angTo())) < 1.15;
           e.hurt(Math.max(1, Math.round(a.dmg * (pb ? .5 : 1))),
-                 Math.atan2(a.vy, a.vx), undefined, 6);
+                 Math.atan2(a.vy, a.vx), undefined, 6, a.owner || player, a.bowId);
           fx('arrowImpact', { owner: a.owner, x: a.x, y: a.y,
                               ang: Math.atan2(a.vy, a.vx), bowId: a.bowId });
           if (!(a.owner && a.owner.p2)) {   // P2 is progression-free
@@ -5244,7 +5663,8 @@ function updateBurnZones(dt) {
         for (const e of enemies) {
           if (e.dead || e.state === 'spawn') continue;
           if (dist(e.x, e.y, b.x, b.y) < b.r + e.r * .4) {
-            e.hurt(4, Math.atan2(e.y - b.y, e.x - b.x), undefined, 3);
+            e.hurt(4, Math.atan2(e.y - b.y, e.x - b.x), undefined, 3,
+                   b.owner || player, 'firebow');
             fx('burn', { x: e.x, y: e.y });
           }
         }
@@ -5383,8 +5803,8 @@ function castFire() {
     if (inArc(player.x, player.y, player.face, range + e.r, arc, e.x, e.y, e.r)) {
       const ang = Math.atan2(e.y - player.y, e.x - player.x);
       // small foes are unwritten outright; brutes merely burn
-      if (e instanceof Brute) e.hurt(45, ang, .45);
-      else e.hurt(9999, ang);
+      if (e instanceof Brute) e.hurt(45, ang, .45, 8, player, 'fudemaru');
+      else e.hurt(9999, ang, undefined, 8, player, 'fudemaru');
     }
   }
   for (let i = 0; i < 26; i++) {
@@ -5443,7 +5863,8 @@ function updateStorm(dt) {
     const e = storm.targets[storm.idx++];
     if (e && !e.dead) {
       boltFX(storm.from.x, storm.from.y, e.x, e.y);
-      e.hurt(24, Math.atan2(e.y - storm.from.y, e.x - storm.from.x), .45);
+      e.hurt(24, Math.atan2(e.y - storm.from.y, e.x - storm.from.x), .45, 8,
+             player, 'fudemaru');
       storm.from = { x: e.x, y: e.y };
       shake(2); freeze(.02);
     }
@@ -7099,12 +7520,14 @@ function genInfiniteComp(w) {
 }
 
 /* ---------- curses: self-chosen handicaps, priced in honor ---------- */
+// bonuses priced by what each burden actually costs a SKILLED hand:
+// a parry player barely misses the roll, but nobody escapes mirrored feet
 const CURSES = [
-  { id: 'noroll', kanji: '根', name: 'The Rooted',   bonus: 1.0,
+  { id: 'noroll', kanji: '根', name: 'The Rooted',   bonus: .75,
     desc: 'no dodge roll — parry or perish' },
   { id: 'frail',  kanji: '硝', name: 'The Glass',    bonus: .75,
     desc: 'half max health' },
-  { id: 'mirror', kanji: '鏡', name: 'The Reversed', bonus: .5,
+  { id: 'mirror', kanji: '鏡', name: 'The Reversed', bonus: 1.0,
     desc: 'movement controls are mirrored' },
   { id: 'winded', kanji: '虚', name: 'The Hollow',   bonus: 1.0,
     desc: 'every swing is a winded swing — slow and weak' },
@@ -7150,6 +7573,7 @@ function startRun(mode) {
   game.curses = (mode === 'duel' || mode === 'merchant' || mode === 'training')
     ? [] : menuSel.curses.slice();
   game.blessings = [];
+  game.shrineN = 0;          // bargain-shrine cadence restarts each run
   game.omamoriUsed = false;
   game.levelDamageTaken = 0;
   game.honor = save.honor;
@@ -7194,6 +7618,14 @@ function startRun(mode) {
     setTheme(0);
     resetPlayer();
     startRushStage();
+  } else if (mode === 'ascension') {
+    // 転生の道 — the Road of Rebirth: the five lords, back to back, risen
+    // to match the player's own might. Fell them all and the cycle turns;
+    // fall, and nothing is lost but the walk.
+    game.stage = 1;
+    setTheme(0);
+    resetPlayer();
+    startAscensionStage();
   } else if (mode === 'duel') {
     setTheme(menuSel.duelArena);   // any themed ground, hazards live
     resetPlayer();          // parked off to the side, never drawn in duels
@@ -7319,6 +7751,45 @@ function startRushStage() {
     setBanner('— ' + BOSS_NAMES[k - 1] + ' —', 2.2);
   }
 }
+/* ---------- 転生の道 the Road of Rebirth ----------
+   Confirming a rebirth no longer flips a switch — it opens a TRIAL: the
+   five story lords in their arenas, one after another. The road rises to
+   meet the reborn: lords scale with rebirthMult itself, so every walk
+   fights like the first (the arsenal's growth is the only edge kept).
+   From cycle 1 on, the lords come in their REMIXED forms; the final gate
+   is always the Storm Sovereign, Ascendant.                             */
+function ascensionMults() {
+  const lvl = rebirthLevel();
+  // waveMults already hardens ×1.08/cycle; this tops it up so the lords'
+  // health tracks the player's ×1.5^cycle exactly, damage rising gentler
+  // (the 40%-cap fairness rule holds regardless)
+  return { hp: Math.max(1, rebirthMult() * .85 / (1 + .08 * lvl)),
+           dmg: Math.max(1, Math.pow(1.22, lvl)) };
+}
+function startAscensionStage() {
+  bankOrbs();
+  const k = game.stage, lvl = rebirthLevel();
+  setTheme(k - 1);
+  // first walk: the lords as the story knew them, but the last gate is
+  // always ascendant; every later cycle remixes the whole road
+  const remixed = lvl >= 1 || k === 5;
+  spawnBosses(remixed ? makeRemixBossList(k - 1) : makeLevelBossList(k),
+              ascensionMults());
+  const name = (remixed ? BOSS_REMIX_NAMES : BOSS_NAMES)[k - 1];
+  setBanner(k === 1 ? `転生の道 — the road opens · ${name} (1/5)`
+          : k < 5 ? `転生の道 — ${name} bars the road (${k}/5)`
+          : `転生の道 — the final gate · ${name}`, 2.8);
+}
+function ascensionComplete() {
+  bankOrbs();
+  doRebirth();
+  game.honor = save.honor;
+  game.equipped = save.equipped;
+  game.adminUnlocked = save.adminUnlocked;
+  playSfx('achieve');
+  returnToMenu();
+  setBanner(`転生 the road is walked — cycle ${rebirthLevel()} · might ×${rebirthMult().toFixed(2)}`, 4);
+}
 function fmtTime(t) {
   const m = Math.floor(t / 60), sec = t - m * 60;
   return m + ':' + (sec < 10 ? '0' : '') + sec.toFixed(1);
@@ -7346,7 +7817,8 @@ function rushComplete() {
 }
 /* ---------- 墓 the Tomb of the Fallen ----------
    The macro honor sink: offer a toll at an ancestor tablet, survive the
-   trial, and a base stat steps toward its 10× ceiling. Toll scales
+   trial, and a base stat takes one FLAT, uncapped step (applied after
+   the damage multipliers — see 25-save). Toll scales
    Cost(S) = 300 × 1.5^S PER TRACK; a hit-scarred trial refunds 60% —
    the same "the ink flows back" language as a broken 奥義 windup.       */
 let tombTablets = [];
@@ -7414,13 +7886,18 @@ function updateTomb(dt) {
         T.phase = 'breath';
         T.t = 0;
         T.pressed = false;
+        T.mLatch = true;         // M held through the fight must lift first
+        T.ph = rand(0, TAU);     // the needle never starts centered
         setBanner('still the breath — press M inside the gold band', 2.4);
       }
     }
   } else if (T.phase === 'breath') {
-    // the needle drifts on two beats; one press decides the banking
-    T.needle = Math.sin(T.t * 2.1) * .8 + Math.sin(T.t * 3.7) * .2;
-    if (!T.pressed && keys.m) {
+    // the needle drifts on two beats from a random phase; one press decides
+    // the banking — and only a press MADE here counts: a hand already
+    // resting on M when the breath begins must lift and press anew
+    T.needle = Math.sin(T.t * 2.1 + T.ph) * .8 + Math.sin(T.t * 3.7 + T.ph * 1.7) * .2;
+    if (!keys.m) T.mLatch = false;
+    if (!T.pressed && keys.m && !T.mLatch) {
       T.pressed = true;
       const off = Math.abs(T.needle);
       const grade = off < .18 ? 1 : off < .42 ? .8 : 0;
@@ -7609,6 +8086,8 @@ function startCampaignStage(first) {
 }
 function onWaveCleared() {
   adapt.decay();
+  // the first cleared wave earns the archery lesson — a calm moment for it
+  hintOnce('bow', 'Q — trade blade for bow: hold V to bend the string, release to loose');
   if (game.coop) reviveDowned();   // the fallen stand once the wave breaks
   if (game.mode === 'campaign') {
     save.maps.best[game.map] = Math.max(save.maps.best[game.map] || 0, game.cStage);
@@ -7620,28 +8099,29 @@ function onWaveCleared() {
         Math.min(MAP_COUNT, game.map + 2));
       save.merchantUnlocked = true;
       game.victory = true;
-      merchant = { x: clamp(p.x + 150, ARENA.x + 90, ARENA.x + ARENA.w - 90),
-                   y: clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90) };
+      merchant = clearSpot(clamp(p.x + 150, ARENA.x + 90, ARENA.x + ARENA.w - 90),
+                           clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90));
       spawnPortal(p.x - 150, p.y, 'home');   // the road home stands open
       setBanner(game.map + 1 < MAP_COUNT
         ? 'the map is cleared — a deeper one unfurls'
         : 'the fifth map falls silent — the ledger is complete', 3.2);
       if (game.map + 1 >= MAP_COUNT) award('trialAll');
     } else {
-      // stage chest roll: 12% + 1% per stage into the map
-      if (srandom() < .12 + game.cStage * .01) rollChest(p, 0);
+      // stage chest roll: 18% + 1.5% per stage into the map
+      if (srandom() < .18 + game.cStage * .015) rollChest(p, 0);
       spawnPortal(p.x, p.y, 'next');
       const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
       if (game.cStage % 4 === 0)
         spawnShrine(portal.x - side * 150,
                     portal.y + (portal.y > ARENA.y + ARENA.h / 2 ? -110 : 110));
       if (game.cStage % 5 === 0)
-        merchant = { x: clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
-                     y: clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70) };
+        merchant = clearSpot(clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
+                             clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70));
     }
     persistSave();
   } else if (game.mode === 'level') {
     if (game.wave >= game.levelWaves) {          // the boss has fallen
+      const firstClear = game.level > (save.maxLevelCleared || 0);
       save.maxLevelCleared = Math.max(save.maxLevelCleared, game.level);
       if (game.level === 1) award('trial1');
       if (game.level >= 5) award('trialAll');
@@ -7649,21 +8129,25 @@ function onWaveCleared() {
       if (game.curses.length) award('defiant');
       const p = game.lastBossDeath ||
         { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+      // the story lords pay in lacquer: a first clear is ALWAYS honored
+      // (lord-biased roll); revisits keep a smaller promise
+      if (firstClear) rollChest(p, 1);
+      else if (srandom() < .25) rollChest(p, 0);
       if (game.level >= 5) {
         // the game's only friendly face — and, at last, the road home
         save.merchantUnlocked = true;
         game.victory = true;
         const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
-        merchant = { x: clamp(p.x, ARENA.x + 90, ARENA.x + ARENA.w - 90),
-                     y: clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90) };
+        merchant = clearSpot(clamp(p.x, ARENA.x + 90, ARENA.x + ARENA.w - 90),
+                             clamp(p.y, ARENA.y + 90, ARENA.y + ARENA.h - 90));
         spawnPortal(p.x + side * 170, p.y, 'home');
         setBanner('the storm breaks — the trial is complete · the road home stands open', 3.2);
       } else {
         spawnPortal(p.x, p.y, 'next');
         // the merchant sets up beside every rift — trade before you step through
         const side = p.x > ARENA.x + ARENA.w / 2 ? -1 : 1;
-        merchant = { x: clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
-                     y: clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70) };
+        merchant = clearSpot(clamp(portal.x + side * 170, ARENA.x + 70, ARENA.x + ARENA.w - 70),
+                             clamp(portal.y, ARENA.y + 70, ARENA.y + ARENA.h - 70));
         // a wayside shrine appears after every cleared level
         spawnShrine(portal.x - side * 150,
                     portal.y + (portal.y > ARENA.y + ARENA.h / 2 ? -110 : 110));
@@ -7682,17 +8166,50 @@ function onWaveCleared() {
       P.hp = Math.min(P.maxHp, P.hp + (game.chaos ? 35 : 50));
       P.st = P.maxSt;
     }
+    // the rushes pay as they go — a chest rolled here rides into the next
+    // stage's arena, opened between swings
+    {
+      const p = game.lastBossDeath ||
+        { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+      if (!game.chaos) {
+        // gauntlet lords 1–4 may leave lacquer (stage 5 ends on the scroll)
+        if (game.stage < 5 && srandom() < .3) rollChest(p, 1);
+      } else {
+        const lap = Math.floor((game.stage - 1) / 5);
+        if (game.stage % 5 === 0) rollChest(p, Math.min(2, 1 + lap));
+        else if (srandom() < .15) rollChest(p, Math.min(2, lap));
+      }
+    }
     game.stage++;
     if (game.chaos && game.stage >= 10) award('chaos10');
     persistSave();
     if (!game.chaos && game.stage > 5) rushComplete();
     else startRushStage();
+  } else if (game.mode === 'ascension') {
+    if (game.stage >= 5) { ascensionComplete(); return; }   // the road is walked
+    player.hp = Math.min(player.maxHp, player.hp + 40);
+    player.st = player.maxSt;
+    const p = game.lastBossDeath ||
+      { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+    if (srandom() < .3) rollChest(p, 1);   // the road's lords may pay lacquer
+    game.stage++;
+    startAscensionStage();
   } else if (game.mode === 'infinite') {
     if (game.wave > save.deepestWave) {
       save.deepestWave = game.wave;
       save.recCycles.wave = rebirthLevel();
     }
     if (game.wave >= 20) award('wave20');
+    // the storm pays in lacquer too: every fifth-wave lord may leave a
+    // chest, every full arena rotation guarantees one, and the tier bias
+    // deepens with the wave (sim-stream dice — both online sims agree)
+    if (game.wave % 5 === 0) {
+      const p = game.lastBossDeath ||
+        { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+      const bias = Math.min(2, Math.floor(game.wave / 20));
+      if (game.wave % 25 === 0) rollChest(p, Math.max(1, bias));
+      else if (srandom() < .4) rollChest(p, bias);
+    }
     persistSave();
     game.wave++;
     startInfiniteWave(false);
@@ -7729,12 +8246,18 @@ function gameOver() {
     save.highScores.sort((a, b) => b.wave - a.wave || b.honor - a.honor);
     save.highScores = save.highScores.slice(0, 5);
     statLine = `You fell on wave <b>${game.wave}</b> of the endless storm (×${game.diff})`;
+  } else if (game.mode === 'ascension') {
+    statLine = `The road refused you — lord <b>${Math.min(game.stage, 5)}/5</b> holds the pass.` +
+      ` <i>Nothing is lost; walk again when ready</i>`;
   } else {
     statLine = `You fell in <b>Level ${game.level}</b>, wave <b>${game.wave}/${game.levelWaves}</b> (×${game.diff})`;
   }
   persistSave();
+  // the recap names the killer — the lesson survives the ink
+  const fb = game.lastHitDesc
+    ? `<br>felled by <b>${game.lastHitDesc.name}</b> (−${fmtNum(game.lastHitDesc.dmg)})` : '';
   document.getElementById('overStats').innerHTML =
-    statLine + ` wielding <b>${WEAPONS[game.equipped].name}</b><br>` +
+    statLine + ` wielding <b>${WEAPONS[game.equipped].name}</b>` + fb + `<br>` +
     `Honor earned this run: <b>${game.honorEarned}</b> · wallet: <b>誉 ${game.honor}</b> <i>(kept)</i>`;
   document.getElementById('overScores').innerHTML =
     game.mode === 'infinite' ? scoreListHTML() : '';
@@ -7886,6 +8409,7 @@ function renderBows() {
         (wxpOf(id).lvl >= rarityOf(id).cap ? ' — fully tempered'
           : ` · ${fmtNum(wxpOf(id).xp)}/${fmtNum(xpForLevel(wxpOf(id).lvl))} xp`) +
         ` · ×${(rarityMult(id) * wxpMult(id)).toFixed(1)}</div>` : '') +
+      `<div class="si-desc"><i>導 shafts gently seek a foe within ${Math.round(15 + kyudoRank() * 1.5)}° of their line — 弓道 ranks widen the eye (never in duels)</i></div>` +
       `<div class="si-desc"><i>Q strings the bow in any trial; hold V to draw, release to loose.</i></div>`;
     row.appendChild(info);
     const right = document.createElement('div');
@@ -8158,13 +8682,12 @@ let rebirthReturn = 'title';
 let rebirthArmed = false;
 function renderRebirth() {
   const lvl = rebirthLevel();
-  const gateOpen = (save.maxLevelCleared || 0) >= 5;
   document.getElementById('rebirthStatus').innerHTML =
     `cycle <b>${lvl}</b> · might &amp; vigor <b>×${rebirthMult().toFixed(2)}</b>` +
     ` · next cycle <b>×${Math.pow(1.5, lvl + 1).toFixed(2)}</b>` +
-    `<br>${gateOpen
-      ? 'the fifth lord has fallen — the altar will answer'
-      : 'the altar is silent — <b>slay the fifth lord</b> of the story to open the cycle'}`;
+    `<br>the cycle is not granted — it is <b>walked</b>: 転生の道, the five lords` +
+    ` back to back, <b>risen to match your might</b>. Fell them all and everything` +
+    ` burns but the arsenal and the records. Fall, and nothing is lost.`;
   const wall = document.getElementById('rebirthPerks');
   wall.innerHTML = '';
   for (const p of REBIRTH_PERKS) {
@@ -8176,12 +8699,12 @@ function renderRebirth() {
     wall.appendChild(row);
   }
   const btn = document.getElementById('btnRebirth');
-  btn.disabled = !gateOpen || game.state !== 'rebirth' || rebirthReturn !== 'playing';
-  btn.textContent = rebirthArmed ? 'SPEAK IT AGAIN — BE REBORN' : 'BE REBORN';
+  const walking = game.mode === 'ascension' && rebirthReturn === 'playing';
+  btn.disabled = walking;
+  btn.textContent = rebirthArmed ? '転生の道 — WALK THE ROAD' : 'BE REBORN';
   document.getElementById('rebirthMsg').textContent =
-    rebirthReturn !== 'playing'
-      ? 'the cycle turns only at the tomb altar — this scroll only tells of it'
-      : (rebirthArmed ? 'once spoken twice, nothing unsays it' : '');
+    walking ? 'you are already on the road — the lords are waiting'
+      : (rebirthArmed ? 'spoken again, the road opens — five lords bar the way' : '');
 }
 function openRebirth() {
   rebirthReturn = game.state === 'playing' ? 'playing' : 'title';
@@ -8198,21 +8721,10 @@ function closeRebirth() {
 document.getElementById('btnRebirthClose').onclick = closeRebirth;
 document.getElementById('btnRebirth').onclick = () => {
   if (!rebirthArmed) { rebirthArmed = true; renderRebirth(); return; }
-  const err = doRebirth();
-  if (err) {
-    document.getElementById('rebirthMsg').textContent = err;
-    rebirthArmed = false;
-    return;
-  }
-  // the world wakes into the new life
-  game.honor = save.honor;
-  game.equipped = save.equipped;
-  game.adminUnlocked = save.adminUnlocked;
+  // the confirmation opens the ROAD, not the cycle — the cycle is earned
+  // at the far end of five lords (ascensionComplete → doRebirth)
   rebirthArmed = false;
-  playSfx('achieve');
-  returnToMenu();
-  renderMenu();
-  setBanner(`転生 cycle ${rebirthLevel()} — might ×${rebirthMult().toFixed(2)}`, 3.5);
+  startRun('ascension');
 };
 document.getElementById('btnRebirthMenu').onclick = openRebirth;
 
@@ -8523,10 +9035,19 @@ function renderMenu() {
     b.onclick = () => { menuSel.level = i; renderMenu(); };
     lr.appendChild(b);
   }
+  // the meta doors reveal themselves as the save earns them — a fresh
+  // scroll shows only training; clutter is paid for with progress
   document.getElementById('btnMerchantMenu').style.display =
     save.merchantUnlocked ? 'inline-block' : 'none';
+  document.getElementById('btnTomb').style.display =
+    (save.honor >= 300 || tombSessions() > 0 || rebirthLevel() > 0)
+      ? 'inline-block' : 'none';
+  // 転生 the road opens once the first lord has taught you the game —
+  // the road itself (five lords, risen to your might) is the only gate
   document.getElementById('btnRebirthMenu').style.display =
-    (rebirthLevel() > 0 || (save.maxLevelCleared || 0) >= 5) ? 'inline-block' : 'none';
+    (rebirthLevel() > 0 || (save.maxLevelCleared || 0) >= 1 ||
+     ((save.maps.best && save.maps.best[0]) || 0) >= STAGES_PER_MAP)
+      ? 'inline-block' : 'none';
   let rec = `wallet <b>誉 ${save.honor}</b>`;
   if (rebirthLevel() > 0)
     rec += ` · 転生 cycle <b>${rebirthLevel()}</b> (×${rebirthMult().toFixed(2)})`;
@@ -8975,6 +9496,8 @@ function update(dt) {
   if (game.mode === 'rush') game.rushTime += dt;
   game.bannerT = Math.max(0, game.bannerT - dt);
   game.comboPop = Math.max(0, game.comboPop - dt);
+  // the combo is a rhythm, not a ledger — four idle seconds let it drop
+  if (game.combo > 0 && game.time - (game.lastComboAt || 0) > 4) game.combo = 0;
   game.desatT = Math.max(0, game.desatT - dt);
   game.flashT = Math.max(0, game.flashT - dt);
   meleeTokens.update(dt); rangedTokens.update(dt);
@@ -9929,22 +10452,9 @@ function drawHUD() {
     }
   }
   // 奥 ultimate meter — neon; drains as a duration bar while the surge runs.
-  // Until the first rebirth the gate is closed: the meter still FILLS —
-  // grayed behind the seal — but only the training yard lets it speak.
-  if (game.mode !== 'duel' && game.mode !== 'training' && !ultUnlocked()) {
-    const uy = by + 42, uw = 190;
-    ctx.fillStyle = 'rgba(43,35,32,.45)'; ctx.font = '15px Georgia,serif';
-    ctx.fillText('奥', bx - 2, uy + bh / 2);
-    ctx.strokeStyle = 'rgba(43,35,32,.45)'; ctx.lineWidth = 2;
-    ctx.strokeRect(bx + 20, uy, uw, bh);
-    ctx.fillStyle = 'rgba(43,35,32,.08)';
-    ctx.fillRect(bx + 20, uy, uw, bh);
-    const sfrac = clamp(game.ult.meter / game.ult.max, 0, 1);
-    ctx.fillStyle = 'rgba(43,35,32,.28)';   // ashen ink — power owned, unspendable
-    ctx.fillRect(bx + 21, uy + 1, (uw - 2) * sfrac, bh - 2);
-    ctx.fillStyle = 'rgba(43,35,32,.5)'; ctx.font = 'italic 11px Georgia,serif';
-    ctx.fillText('封 sealed — 転生 opens the gate', bx + 20 + uw + 10, uy + bh / 2);
-  } else if (game.mode !== 'duel') {
+  // Before the first rebirth the ART already answers a full meter; only
+  // the INK SURGE after it waits behind the cycle (the label says so).
+  if (game.mode !== 'duel') {
     const uy = by + 42, uw = 190;
     const nz = weaponNeon(game.equipped);
     ctx.fillStyle = INK; ctx.font = '15px Georgia,serif';
@@ -9980,7 +10490,9 @@ function drawHUD() {
       ctx.globalAlpha = 1; ctx.shadowBlur = 0;
       if (full) {
         ctx.fillStyle = INK; ctx.font = 'italic 12px Georgia,serif';
-        ctx.fillText('press R — 奥義', bx + 20 + uw + 10, uy + bh / 2);
+        ctx.fillText(ultUnlocked() ? 'press R — 奥義'
+          : 'press R — the art alone · 転生 wakes the SURGE',
+          bx + 20 + uw + 10, uy + bh / 2);
       }
     }
   }
@@ -10000,6 +10512,8 @@ function drawHUD() {
     modeLine = game.chaos
       ? `亂 CHAOS — STAGE ${game.stage} · ${fmtTime(game.rushTime)}`
       : `討 BOSS RUSH — ${Math.min(game.stage, 5)}/5 · ${fmtTime(game.rushTime)}`;
+  else if (game.mode === 'ascension')
+    modeLine = `転生の道 THE ROAD OF REBIRTH — LORD ${Math.min(game.stage, 5)}/5`;
   else if (game.mode === 'training') modeLine = '稽古 THE TRAINING YARD';
   else if (game.mode === 'tomb') modeLine = '墓 THE TOMB OF THE FALLEN';
   else modeLine = '視 THE MERCHANT’S STALL';
@@ -10210,31 +10724,78 @@ function drawHUD() {
       ctx.fillText('M — release the breath inside the gold', W / 2, by0 + 32);
     }
   }
-  // the reveal card — a hanging slip of parchment naming the pull
+  // the reveal — a lacquer CAROUSEL: the arsenal streams past a gold
+  // marker, the reel slows on an easing curve, and the landing tile is
+  // the pull. Filler tiles are cosmetic; only the center tile is law.
   if (chestCard) {
     const cc = chestCard;
-    const inT = clamp(cc.t / .25, 0, 1), outT = clamp((2.8 - cc.t) / .3, 0, 1);
+    const inT = clamp(cc.t / .2, 0, 1);
+    const outT = clamp((REEL.spin + REEL.hold - cc.t) / .35, 0, 1);
     const a = Math.min(inT, outT);
-    const cw = 240, ch2 = 120, cx = W / 2, cy = 150 - (1 - inT) * 24;
+    const cx = W / 2, cy = 150 - (1 - inT) * 18;
+    const step = REEL.step, tw = 60, th = 76;
+    const winW = step * 4.6, winH = th + 22;
+    const center = reelCenterAt(cc.t);
+    const landed = cc.t >= REEL.spin;
+    const tierCol = t => t === 'legendary' ? GOLD
+                       : t === 'pure' ? '#5d7f9c' : 'rgba(43,35,32,.55)';
     ctx.save();
     ctx.globalAlpha = a;
+    // the parchment window the reel turns behind
     ctx.fillStyle = CREAM;
-    ctx.strokeStyle = cc.tier === 'legendary' ? GOLD : INK;
-    ctx.lineWidth = cc.tier === 'legendary' ? 3 : 2;
-    ctx.fillRect(cx - cw / 2, cy - ch2 / 2, cw, ch2);
-    ctx.strokeRect(cx - cw / 2, cy - ch2 / 2, cw, ch2);
+    ctx.strokeStyle = landed ? tierCol(cc.tier) : INK;
+    ctx.lineWidth = landed && cc.tier === 'legendary' ? 3 : 2;
+    ctx.fillRect(cx - winW / 2, cy - winH / 2, winW, winH);
+    ctx.strokeRect(cx - winW / 2, cy - winH / 2, winW, winH);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - winW / 2 + 3, cy - winH / 2 + 3, winW - 6, winH - 6);
+    ctx.clip();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = cc.tier === 'legendary' ? GOLD
-                  : cc.tier === 'pure' ? '#5d574f' : 'rgba(43,35,32,.65)';
-    ctx.font = 'italic 12px Georgia,serif';
-    ctx.fillText(`${RARITY[cc.tier].kanji} ${RARITY[cc.tier].name.toUpperCase()}`,
-      cx, cy - ch2 / 2 + 18);
-    ctx.fillStyle = INK;
-    ctx.font = '34px Georgia,serif';
-    ctx.fillText(cc.item.kanji, cx, cy - 2);
-    ctx.font = 'italic 13px Georgia,serif';
-    ctx.fillText(`${cc.item.name}${cc.isNew ? '' : ' — melted to temper'}`,
-      cx, cy + ch2 / 2 - 18);
+    for (let i = 0; i < cc.reel.length; i++) {
+      const x = cx + (i - center) * step;
+      if (x < cx - winW / 2 - tw || x > cx + winW / 2 + tw) continue;
+      const id = cc.reel[i];
+      const it = WEAPONS[id] || BOWS[id];
+      const rar = WPN_RARITY[id] || BOW_RARITY[id] || 'worn';
+      const isWin = landed && i === REEL.land;
+      // tiles dim toward the window edges; the winner burns bright
+      const edge = clamp(1 - Math.abs(x - cx) / (winW / 2), 0, 1);
+      ctx.globalAlpha = a * (isWin ? 1 : .35 + .5 * edge);
+      if (isWin) {
+        ctx.save();
+        ctx.shadowBlur = 16;
+        ctx.shadowColor = tierCol(cc.tier);
+      }
+      ctx.strokeStyle = isWin ? tierCol(cc.tier) : tierCol(rar);
+      ctx.lineWidth = isWin ? 3 : 1.4;
+      ctx.strokeRect(x - tw / 2, cy - th / 2 + 2, tw, th - 10);
+      ctx.fillStyle = INK;
+      ctx.font = (isWin ? '32px' : '26px') + ' Georgia,serif';
+      ctx.fillText(it.kanji, x, cy - 5);
+      ctx.font = 'italic 9px Georgia,serif';
+      ctx.fillStyle = tierCol(rar);
+      ctx.fillText(RARITY[rar].name.toUpperCase(), x, cy + th / 2 - 14);
+      if (isWin) ctx.restore();
+    }
+    ctx.restore();   // clip off
+    // the gold marker notches, top and bottom of the window
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = GOLD; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - winH / 2 - 7); ctx.lineTo(cx, cy - winH / 2 + 6);
+    ctx.moveTo(cx, cy + winH / 2 + 7); ctx.lineTo(cx, cy + winH / 2 - 6);
+    ctx.stroke();
+    // once the reel rests, the pull is named beneath the window
+    if (landed) {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = cc.tier === 'legendary' ? GOLD : INK;
+      ctx.font = 'italic 14px Georgia,serif';
+      ctx.fillText(
+        `${RARITY[cc.tier].kanji} ${cc.item.name} — “${cc.item.epithet}”` +
+        (cc.isNew ? '' : ' · melted to temper'),
+        cx, cy + winH / 2 + 18);
+    }
     ctx.restore();
     ctx.globalAlpha = 1;
   }
