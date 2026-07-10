@@ -10,10 +10,10 @@ const GOLD   = '#a8843a';
 // darkest at draw time (see drawEnemy). Silhouette + weapon carry the
 // rest of the identity.
 const C_GRUNT   = '#79695c';   // mid — the honest club
-const C_DUELIST = '#5d574f';   // darker — the punishing rapier
-const C_BRUTE   = '#453f39';   // darkest standard — the armored slab
-const C_ARCHER  = '#7f766b';   // light — frail, distant
-const C_SHINOBI = '#8b847d';   // lightest — the knife in the mist
+const C_DUELIST = '#575146';   // darker — the punishing rapier
+const C_BRUTE   = '#39332d';   // darkest standard — the armored slab
+const C_ARCHER  = '#93887a';   // light — frail, distant
+const C_SHINOBI = '#9d968d';   // lightest — the knife in the mist
 const C_ASHIGARU= '#645a4a';   // dark warm — the walking wall
 
 // sound dispatcher — a no-op until the procedural audio engine (below)

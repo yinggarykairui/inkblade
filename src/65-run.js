@@ -405,9 +405,10 @@ function startInfiniteWave(first) {
       setBanner(`${THEMES[arenaIdx].kanji} ${THEMES[arenaIdx].name} — wave ${w}`, 2);
     else setBanner(`— wave ${w} —`, 1.6);
   }
-  // the stall portal opens at the start of every arena rotation —
-  // but not online: the shop's DOM clicks don't ride the tick pipeline
-  if (save.merchantUnlocked && (w - 1) % 5 === 0 && !netCoop())
+  // the stall portal opens at the start of every arena rotation — ONLINE
+  // TOO now: the host trades (their purchases cross as shopOp messages)
+  // while the guest's sim waits in 'shopwait' at the same tick
+  if (save.merchantUnlocked && (w - 1) % 5 === 0)
     spawnPortal(ARENA.x + 56, ARENA.y + 56, 'merchant');
   // every THIRD wave survived, a shrine stands in the far corner — the
   // storm's in-run build engine: deepen a blessing or diversify, every
@@ -676,6 +677,10 @@ function startKyudoRite() {
   if (game.kyudo && game.kyudo.on) return;
   if (game.equipped === 'fudemaru') {
     addText(player.x, player.y - 34, '筆 the brush needs no bow', RED, 13);
+    return;
+  }
+  if (currentBow().admin) {
+    addText(player.x, player.y - 34, '蔓 the vine needs no rite — it does not miss', RED, 13);
     return;
   }
   // the rite is shot, not sliced — string the bow for the archer
@@ -1000,9 +1005,11 @@ function gameOver() {
   document.getElementById('overStats').innerHTML =
     statLine + ` wielding <b>${WEAPONS[game.equipped].name}</b>` + fb + lessonLine + stallLine + `<br>` +
     `Honor earned this run: <b>${game.honorEarned}</b> · wallet: <b>誉 ${game.honor}</b> <i>(kept)</i>`;
-  // die → paid → one click → stronger → retry: the TRAIN door is right here
+  // die → paid → one click → stronger → retry: the TRAIN door is right
+  // here — except for an online GUEST, whose ledger is borrowed: spending
+  // the host's honor from the far house would desync the next handshake
   const tb = document.getElementById('btnTrainOver');
-  tb.style.display = 'inline-block';
+  tb.style.display = (netCoop() && net.started && !net.host) ? 'none' : 'inline-block';
   tb.textContent = `修 TRAIN — 誉 ${fmtNum(game.honor)}`;
   document.getElementById('overScores').innerHTML =
     game.mode === 'infinite' ? scoreListHTML() : '';

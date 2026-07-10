@@ -387,6 +387,25 @@ function updatePortal(dt) {
       portal = null;
       playSfx('portal');
       returnToMenu();
+    } else if (netCoop() && net.started && !net.host) {
+      // both sims reach this tick together (the portal reads P1's body);
+      // the host's client opens the stall, the guest's WAITS — frozen at
+      // the same tick until the shopClose message releases it
+      game.state = 'shopwait';
+      showOverlay('none');
+      setBanner('the host trades at the stall — hold', 2.4);
+      portal.armed = false;
+      // ops (and even the close) may have raced ahead of our sim — apply
+      // them NOW, at the exact tick the host's own sim applied them
+      if (net.shopQ) {
+        for (const op of net.shopQ) applyShopOp(op.op, op.id);
+        net.shopQ = null;
+      }
+      if (net.shopCloseQ) {
+        net.shopCloseQ = false;
+        game.state = 'playing';
+        setBanner('the stall closes — the storm resumes', 1.6);
+      }
     } else openShop();
   }
 }
@@ -402,17 +421,21 @@ function updateTransition(dt) {
   }
   if (transition.t >= transition.dur) transition = null;
 }
-function tryInteract() {
+function tryInteract(pl) {
+  pl = pl || player;   // co-op: EITHER blade may interact — see the gates below
   if (game.state !== 'playing') return;
   // the NEAREST thing in reach answers E — fixtures standing close
   // together can no longer shadow one another (stall over chest, etc.)
   const opts = [];
   const add = (x, y, r, go) => {
-    const d = dist(player.x, player.y, x, y);
+    const d = dist(pl.x, pl.y, x, y);
     if (d < r) opts.push({ d, go });
   };
-  if (merchant) add(merchant.x, merchant.y, 85, openShop);
-  if (shrine) add(shrine.x, shrine.y, 80, openShrine);
+  // the stall and the shrine hang SCROLLS (UI) — they answer P1 alone;
+  // a lacquer chest is pure sim and opens under either blade, and online
+  // the press rides the tick pipeline so both sims open it together
+  if (merchant && !pl.p2) add(merchant.x, merchant.y, 85, openShop);
+  if (shrine && !pl.p2) add(shrine.x, shrine.y, 80, openShrine);
   for (const c of chests)
     if (!c.opened) add(c.x, c.y, 70, () => openChest(c));
   if (game.mode === 'tomb' && game.tomb && game.tomb.phase === 'choose') {

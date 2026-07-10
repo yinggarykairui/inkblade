@@ -87,7 +87,8 @@ function wireConn(conn) {
                   blade: menuSel.p2Blade, bow: menuSel.p2Bow });
     } else {
       conn.send({ t: 'join', kind: 'duel',
-                  blade: menuSel.p1Blade, bow: menuSel.p1Bow });
+                  blade: menuSel.p1Blade, bow: menuSel.p1Bow,
+                  mouse: !!save.mouseAim });   // duel aim needs BOTH hands
     }
   });
   conn.on('data', onNetData);
@@ -153,6 +154,7 @@ function onNetData(d) {
     // sizes the input delay for the whole match
     net.guestBlade = d.blade;
     net.guestBow = d.bow;
+    net.guestMouse = !!d.mouse;
     netStatus('measuring the wire…');
     net.conn.send({ t: 'probe', ts: performance.now() });
   } else if (d.t === 'kindErr' && !net.host) {
@@ -182,18 +184,37 @@ function onNetData(d) {
       net.conn.send(cfg);
       startOnlineCoop(cfg);
     } else {
+      // mouse aim in the ring only when BOTH hands enabled it
+      net.mouseBoth = !!(save.mouseAim && net.guestMouse);
       net.conn.send({ t: 'start', hostBlade: menuSel.p1Blade, guestBlade: net.guestBlade,
                       hostBow: menuSel.p1Bow, guestBow: net.guestBow,
-                      mut: menuSel.mut, delay });
+                      mut: menuSel.mut, delay, mouseBoth: net.mouseBoth });
       startOnlineDuel(menuSel.p1Blade, net.guestBlade, menuSel.mut, delay,
                       menuSel.p1Bow, net.guestBow);
     }
   } else if (d.t === 'start' && !net.host && !net.started) {
+    net.mouseBoth = !!d.mouseBoth;
     startOnlineDuel(d.hostBlade, d.guestBlade, d.mut, d.delay, d.hostBow, d.guestBow);
   } else if (d.t === 'coopStart' && !net.host && !net.started) {
     startOnlineCoop(d);
   } else if (d.t === 'in') {
     net.remoteQ[d.k] = d.b;
+    // the channel is UNORDERED AND LOSSY (reliable:false drops, it does
+    // not retransmit) — each packet carries the previous ticks too, so
+    // any single loss self-heals instead of starving the lockstep forever
+    if (Array.isArray(d.w))
+      for (let i = 0; i < d.w.length; i++) {
+        const kk = d.k - d.w.length + i;
+        if (d.w[i] != null && kk >= 0 && net.remoteQ[kk] === undefined)
+          net.remoteQ[kk] = d.w[i];
+      }
+  } else if (d.t === 'req') {
+    // the peer is starving at tick k — resend everything we hold from there
+    if (net.started)
+      for (let k = d.k; k <= d.k + 24; k++)
+        if (net.localQ && net.localQ[k] !== undefined) {
+          try { net.conn.send({ t: 'in', k, b: net.localQ[k] }); } catch (e) {}
+        }
   } else if (d.t === 'bless') {
     // the host's shrine pick — apply now if our sim has reached the
     // shrine, or hold it until our tick opens the scroll (unordered wire)
@@ -205,6 +226,24 @@ function onNetData(d) {
     if (net.coop && !net.host) {
       if (game.state === 'shrine') closeShrine();
       else net.blessQ = { close: true };
+    }
+  } else if (d.t === 'shopOp') {
+    // the host's stall purchase — the guest's borrowed ledger applies the
+    // exact same mutation. RACE GUARD: if our sim is still ticking toward
+    // the stall tick, applying now would mutate stats mid-tick and drift
+    // the checksum — hold the op until our sim freezes at the stall.
+    if (net.coop && !net.host) {
+      if (game.state === 'playing') (net.shopQ = net.shopQ || []).push(d);
+      else applyShopOp(d.op, d.id);
+    }
+  } else if (d.t === 'shopClose') {
+    // the host leaves the stall — release the waiting guest sim (or note
+    // the release if our sim hasn't even reached the stall tick yet)
+    if (net.coop && !net.host) {
+      if (game.state === 'shopwait') {
+        game.state = 'playing';
+        setBanner('the stall closes — the storm resumes', 1.6);
+      } else net.shopCloseQ = true;
     }
   } else if (d.t === 'pause') {
     if (net.coop && game.state === 'playing') pauseGame();
@@ -251,7 +290,8 @@ function startOnlineDuel(hostBlade, guestBlade, mut, delay, hostBow, guestBow) {
     try { net.conn.send({ t: 'in', k, b: 0 }); } catch (e) {}
   }
   net.sendTick = net.delay;
-  setBanner('決闘 ONLINE — ROUND 1 · first to 2', 2.2);
+  setBanner('決闘 ONLINE — ROUND 1 · first to 2' +
+    (net.mouseBoth ? ' · 両 mouse aim: both hands' : ''), 2.2);
 }
 /* ---------- 二人 online co-op: one storm, two houses ---------- */
 function startOnlineCoop(cfg) {
@@ -276,8 +316,9 @@ function startOnlineCoop(cfg) {
     localQ: {}, remoteQ: {},
     pend: { atk: false, roll: false, parry: false, ult: false,
             swap: false, stance: false, interact: false },
-    rtt: net.rtt || 0, stall: false, pingT: 0,
+    rtt: net.rtt || 0, stall: false, stallT: 0, pingT: 0,
     ckLocal: {}, ckRemote: {}, blessQ: null,
+    shopQ: null, shopCloseQ: false,
   });
   for (let k = 0; k < net.delay; k++) {
     net.localQ[k] = 0;
@@ -305,6 +346,18 @@ function netCkCompare() {
     if (!same) { netDropped('the sims drifted apart — the line owns up and lets go'); return; }
   }
 }
+/* the AIM CHANNEL: bits 13–20 carry the cursor angle as one of 256
+   spokes, bit 21 flags it valid. Quantized integers ride the input
+   stream, so both sims face the same way on the same tick — the cursor
+   itself never crosses the wire, only its angle. Duels demand BOTH
+   hands enabled it (net.mouseBoth, agreed at the handshake); the co-op
+   storm lets each hand choose for their own samurai.                 */
+function packAim(a) {
+  return (1 << 21) | ((Math.round((((a % TAU) + TAU) % TAU) / TAU * 256) & 255) << 13);
+}
+function unpackAim(b) {
+  return (b & (1 << 21)) ? ((b >> 13) & 255) / 256 * TAU : null;
+}
 function sampleLocalBits() {
   let b = 0;
   if (touch.active) {
@@ -325,9 +378,21 @@ function sampleLocalBits() {
   if (net.pend.swap) b |= 256;
   if (keys.m || keys[',']) b |= 512;   // meditation is a held stance
   if (net.pend.stance) b |= 1024;      // 弓 stance toggle
-  if (keys.v || keys.u || touchUI.pressed.atk !== undefined)
+  if (keys.v || keys.u || touchUI.pressed.atk !== undefined ||
+      (mouse.down && save.mouseAim))
     b |= 2048;                         // attack HELD — the bow draw rides this
   if (net.pend.interact) b |= 4096;    // co-op: E rides the wire (host's P1)
+  // the aim channel — only when this hand earned it (setting on; duels
+  // additionally need the handshake's mutual consent)
+  if (save.mouseAim && mouse.seen && !touch.active &&
+      (net.coop || net.mouseBoth)) {
+    const me = net.coop ? (net.host ? player : p2)
+                        : (net.host ? duel.p1 : duel.p2);
+    if (me) {
+      const mw = mouseWorld();
+      b |= packAim(Math.atan2(mw.y - me.y, mw.x - me.x));
+    }
+  }
   net.pend.atk = net.pend.roll = net.pend.parry =
     net.pend.ult = net.pend.swap = net.pend.stance = net.pend.interact = false;
   return b;
@@ -337,15 +402,17 @@ function applyBits(f, b) {
   f.netCtl.my = ((b & 8) ? 1 : 0) - ((b & 4) ? 1 : 0);
   f.netCtl.med = !!(b & 512);
   f.netCtl.atkHeld = !!(b & 2048);
+  f.netCtl.aim = unpackAim(b);
   if (b & 16) f.attackBuf = .1;
   if (b & 32) f.dodgeBuf = .1;
   if (b & 64) f.parryBuf = .1;
   if (net && net.coop) {
-    // samurai speak the PvE tongue: 奥義 and shrine doors are P1's alone,
-    // the bow stance belongs to both; the brush swap has no meaning here
+    // samurai speak the PvE tongue: 奥義 is P1's alone, the bow stance
+    // belongs to both — and E now works for EITHER blade: tryInteract
+    // itself gates the UI scrolls to P1 while chests open under anyone
     if ((b & 128) && f === player) activateUlt();
     if (b & 1024) toggleStanceFor(f);
-    if ((b & 4096) && f === player) tryInteract();
+    if (b & 4096) tryInteract(f);
   } else {
     if (b & 128) toggleFighterUlt(f);    // brush maw — or the 奥義 art on a plain blade
     if (b & 256) toggleFighterSwap(f);
@@ -356,7 +423,9 @@ function commitLocal(k) {   // sample now, remember, and put it on the wire
   if (net.localQ[k] !== undefined) return;
   const b = sampleLocalBits();
   net.localQ[k] = b;
-  try { net.conn.send({ t: 'in', k, b }); } catch (e) {}
+  // redundancy window: the previous three ticks ride along (lossy wire)
+  const w = [net.localQ[k - 3], net.localQ[k - 2], net.localQ[k - 1]];
+  try { net.conn.send({ t: 'in', k, b, w }); } catch (e) {}
 }
 function netFrame(rawDt) {
   // a hanging scroll (shrine, pause, game over) freezes the lockstep on
@@ -405,14 +474,24 @@ function netFrame(rawDt) {
   }
   if (!net) return;
   net.stall = net.remoteQ[net.tick] === undefined;
+  // a stall that outlives the redundancy window means packets died on the
+  // wire — ASK for them again instead of waiting forever ("the timeout")
+  if (net.stall) {
+    net.stallT = (net.stallT || 0) + rawDt;
+    if (net.stallT > .8) {
+      net.stallT = 0;
+      try { net.conn.send({ t: 'req', k: net.tick }); } catch (e) {}
+    }
+  } else net.stallT = 0;
   net.pingT -= rawDt;
   if (net.pingT <= 0 && net.conn) {
     net.pingT = 2;
     try { net.conn.send({ t: 'ping', ts: performance.now() }); } catch (e) {}
   }
-  if (net.tick % 120 === 0) {                  // sweep stale inputs
+  if (net.tick % 120 === 0) {   // sweep stale inputs — but keep a deep
+    // history so a starving peer's re-request can still be answered
     for (const q of [net.localQ, net.remoteQ])
-      for (const key in q) if (+key < net.tick - 20) delete q[key];
+      for (const key in q) if (+key < net.tick - 60) delete q[key];
   }
 }
 

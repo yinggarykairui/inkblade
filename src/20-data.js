@@ -151,6 +151,7 @@ const WPN_NEON = {
   kurogane:  ['#8b5cf6', '#22d3ee'], tsukikage: ['#818cf8', '#c084fc'],
   akaoni:    ['#ff3b3b', '#ff9d00'], raiko:     ['#38bdf8', '#00ffff'],
   fudemaru:  ['#00ffff', '#d946ef'],
+  riana:     ['#39ff88', '#00e5a8'],   // the vine's neon — living green
 };
 function weaponNeon(id) { return WPN_NEON[id] || ['#00ffff', '#d946ef']; }
 
@@ -189,6 +190,12 @@ const BOWS = {
     split: 3, legendary: true,
     draw: .85, dmg: 16, speed: 600, stCost: 18,
     desc: 'Legendary. Bend it fully and the sky answers — one arrow leaves the string, three arrive in a spreading fan.' },
+  // not sold, not pulled — unsealed only by its word on the title scroll.
+  // The vine seeks of its own will: every shaft is an ultimate.
+  riana: { id: 'riana', kanji: '蔓', name: 'Riana', epithet: 'The Vine That Seeks',
+    admin: true, pierce: 99,
+    draw: .15, dmg: 60, speed: 700, stCost: 0,
+    desc: 'ADMIN. The string bends itself; the shaft turns as the vine wills — it does not miss. Each hit is an ultimate: shields part, lightning walks, stances crack. Never winded.' },
 };
 function currentBow() { return BOWS[save.bowEquipped] || BOWS.shortbow; }
 // sword mastery: killing blows on lords, landed with the drawn blade

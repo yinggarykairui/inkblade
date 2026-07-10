@@ -40,6 +40,10 @@ function allPlayers() { const out = [player]; if (p2) out.push(p2); return out; 
 function alivePlayers() {
   return allPlayers().filter(P => P.hp > 0 && !P.downed);
 }
+// the body THIS client steers — render prompts follow it, never the wire
+function localSamurai() {
+  return netCoop() && net.started && !net.host && p2 ? p2 : player;
+}
 function nearestPlayerTo(x, y) {
   const list = alivePlayers();
   if (!list.length) return player;
@@ -489,6 +493,10 @@ function updateSamurai(pl, dt) {
     const mw = mouseWorld();
     pl.face = Math.atan2(mw.y - pl.y, mw.x - pl.x);
   }
+  // online co-op: the aim channel — each hand's cursor angle rode the
+  // input bits and lands identically in both sims
+  if (pl.netCtl && pl.netCtl.aim != null && !pl.action)
+    pl.face = pl.netCtl.aim;
 
   // consume buffered actions — the bow has no swing; its draw is held, not tapped
   if (!pl.action) {
@@ -682,6 +690,14 @@ function updateSamurai(pl, dt) {
       y: pl.y + Math.sin(ba) * (pl.r + 26),
       vx: crand(-60, 60), vy: crand(-60, 60),
       t: 0, life: .15, tint: 'faint', owner: pl, w: 1.2 });
+  }
+  // Riana strung: living motes climb the string — the vine is awake
+  if (pl.stance === 'bow' && bowOf(pl).admin && Math.random() < dt * 5) {
+    const ba = pl.face + crand(-.8, .8);
+    particles.push({ kind: 'dot',
+      x: pl.x + Math.cos(ba) * (pl.r + 10), y: pl.y + Math.sin(ba) * (pl.r + 10),
+      vx: crand(-14, 14), vy: crand(-40, -16), t: 0, life: crand(.4, .8),
+      color: 'rgba(57,255,136,.7)', rad: crand(1.2, 2.2) });
   }
   // Fudemaru: bristles drip ink that never quite lands; spirit never tires
   if (!pl.p2 && game.equipped === 'fudemaru') {

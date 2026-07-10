@@ -810,6 +810,16 @@ function updateFighter(f, dt) {
     const l = Math.hypot(mx, my); mx /= l; my /= l;
     if (!f.action && f.staggerT <= 0) f.face = Math.atan2(my, mx);
   }
+  // LOCAL duels: the cursor owns P1's facing — full 360°, feet on keys
+  if (!f.ai && !f.netCtl && f === (duel && duel.p1) && duelMouseAimOn() &&
+      !f.action && f.staggerT <= 0) {
+    const mw = mouseWorld();
+    f.face = Math.atan2(mw.y - f.y, mw.x - f.x);
+  }
+  // ONLINE: the aim channel — a quantized angle that rode the input bits,
+  // applied identically in both sims (present only when both consented)
+  if (f.netCtl && f.netCtl.aim != null && !f.action && f.staggerT <= 0)
+    f.face = f.netCtl.aim;
   if (f.staggerT > 0) { mx = 0; my = 0; }   // parried wide open — helpless
   else if (!f.action) {
     // the bow has no swing — with the string out, attack taps do nothing
@@ -827,7 +837,8 @@ function updateFighter(f, dt) {
     const held = f.ai ? false
       : f.netCtl ? !!f.netCtl.atkHeld
       : f === (duel && duel.p1)
-        ? (!!keys.v || !!(c2 && keys.u) || touchUI.pressed.atk !== undefined)
+        ? (!!keys.v || !!(c2 && keys.u) || touchUI.pressed.atk !== undefined ||
+           (mouse.down && duelMouseAimOn()))
         : !!keys.u;
     if (f.bowDraw && (f.action || f.staggerT > 0)) f.bowDraw = null;
     if (!f.action && f.staggerT <= 0) {

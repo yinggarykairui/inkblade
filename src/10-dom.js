@@ -322,13 +322,14 @@ addEventListener('keydown', e => {
   if (k === 'Shift' && !coopWire) player.dodgeBuf = 0.18;
   if ((k === 'c' || k === 'C') && !e.repeat && !coopWire) player.parryBuf = 0.18;
   // couch co-op: the second blade answers the duel-style row —
-  // U slash · I roll · O parry · P bow-stance · , meditate (held)
+  // U slash · I roll · O parry · P bow-stance · , meditate (held) · . interact
   if (game.coop && !net && p2 && game.state === 'playing' && game.mode !== 'duel' && !e.repeat) {
     const ck = k.length === 1 ? k.toLowerCase() : k;
     if (ck === 'u') p2.attackBuf = 0.18;
     if (ck === 'i') p2.dodgeBuf = 0.18;
     if (ck === 'o') p2.parryBuf = 0.18;
     if (ck === 'p') toggleStanceFor(p2);
+    if (ck === '.') tryInteract(p2);   // the second blade opens chests too
   }
   if (game.mode === 'duel' && game.state === 'playing' && duel) {
     const lk = k.length === 1 ? k.toLowerCase() : k;
@@ -348,9 +349,11 @@ addEventListener('keydown', e => {
       // vs a bot the lone human owns BOTH bind sets; vs a human they split
       const solo = !!duel.p2.ai;
       const p2t = solo ? duel.p1 : duel.p2;
+      // P1 answers BOTH bind sets — the duel row (V/B/N) and the PvE
+      // muscle memory (V/Shift/C), just like the online ring already does
       if (lk === 'v') duel.p1.attackBuf = .18;
-      if (lk === 'b') duel.p1.dodgeBuf = .18;
-      if (lk === 'n') duel.p1.parryBuf = .18;
+      if (lk === 'b' || k === 'Shift') duel.p1.dodgeBuf = .18;
+      if (lk === 'n' || lk === 'c') duel.p1.parryBuf = .18;
       // P2 mirrors the V/B/N order one row up: U slash · I roll · O parry
       if (lk === 'u') p2t.attackBuf = .18;
       if (lk === 'i') p2t.dodgeBuf = .18;
@@ -414,6 +417,14 @@ function mouseAimOn() {
   return save.mouseAim && mouse.seen && game.state === 'playing' &&
     game.mode !== 'duel' && !netCoop() && !touch.active;
 }
+function duelMouseAimOn() {
+  // LOCAL duels honor the cursor for P1 (vs bots or a couch rival).
+  // Online stays keys for both: the lockstep wire carries key BITS only —
+  // there is no aim channel, and one-sided cursor aim would be unfair
+  // even if there were.
+  return save.mouseAim && mouse.seen && game.state === 'playing' &&
+    game.mode === 'duel' && !!duel && !(net && net.started) && !touch.active;
+}
 function mouseWorld() {   // undo the boss-camera ease around center
   const z = game.zoom || 1;
   return { x: (mouse.x - W / 2) / z + W / 2,
@@ -434,6 +445,23 @@ cv.addEventListener('mousedown', e => {
     save.mouseHinted = true;
     persistSave();
     setBanner('滑 the cursor can own the blade — enable MOUSE AIM in settings', 3.2);
+  }
+  // ONLINE (duel with mutual consent, or the co-op storm): the click
+  // rides the tick pipeline exactly like the V key; the held button
+  // feeds the bow-draw bit in sampleLocalBits
+  if (net && net.started && game.state === 'playing' && save.mouseAim &&
+      mouse.seen && !touch.active && (net.coop || net.mouseBoth)) {
+    e.preventDefault();
+    mouse.down = true;
+    net.pend.atk = true;
+    return;
+  }
+  // local duels: the click is P1's slash; the held button bends the bow
+  if (duelMouseAimOn()) {
+    e.preventDefault();
+    mouse.down = true;
+    duel.p1.attackBuf = .18;
+    return;
   }
   if (!mouseAimOn()) return;
   e.preventDefault();

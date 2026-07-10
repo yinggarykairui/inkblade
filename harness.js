@@ -86,7 +86,9 @@ const FN_NAMES = ['tombCost', 'tombAtk', 'spawnShrine', 'openShrine', 'updateTom
   'startRun', 'ascensionMults', 'hintOnce', 'renderMenu',
   'tryInteract', 'clearSpot',
   'playerLvl', 'playerLvlMult', 'grantPlayerXP', 'xpForPlayerLvl', 'buyArm',
-  'applySaveData', 'armoryGuidance', 'gameOver', 'openShop', 'closeShop'];
+  'applySaveData', 'armoryGuidance', 'gameOver', 'openShop', 'closeShop',
+  'applyShopOp', 'homeDuelArrow', 'homePArrow', 'packAim', 'unpackAim',
+  'grantWeaponXP'];
 const shim = '\n;globalThis.__X = {'
   + EXPORT_NAMES.map(n => `get ${n}() { return ${n}; }`).join(',')
   + ',' + FN_NAMES.map(n => `${n}: ${n}`).join(',')
@@ -461,6 +463,94 @@ t('the stall opens over the death scroll', X.game.state === 'shop');
 X.closeShop();
 t('leaving the stall returns to the death scroll', X.game.state === 'gameover');
 X.game.state = 'title';
+
+console.log('co-op interact + the mirrored stall');
+// either blade opens a chest; the stall scroll answers P1 alone
+X.game.mode = 'infinite'; X.game.state = 'playing'; X.game.coop = true;
+X.makeP2('tetsu', 'shortbow');
+X.p2.x = 600; X.p2.y = 300; X.player.x = 100; X.player.y = 100;
+X.merchant = null; X.portal = null;
+X.rollChest({ x: 600, y: 300 }, 0);
+const cch = X.chests[X.chests.length - 1];
+cch.x = 600; cch.y = 300;   // pin it under P2 (clearSpot may have nudged it)
+X.tryInteract(X.p2);
+t('the second blade opens a chest', cch.opened === true);
+for (let i = 0; i < 400 && X.chestCard; i++) X.updateChests(1 / 60);
+X.merchant = { x: 610, y: 300 };
+X.tryInteract(X.p2);
+t('the stall never answers the second blade', X.game.state === 'playing');
+X.merchant = null; X.p2 = null; X.game.coop = false; X.game.mode = 'level';
+// mirrored stall ops: one mutation path for host click and guest wire
+X.game.honor = 500; X.save.honor = 500; X.save.upgrades.hp = 0;
+t('a mirrored training purchase lands',
+  X.applyShopOp('upg', 'hp') && X.save.upgrades.hp === 1 && X.game.honor === 380);
+X.game.honor = 0; X.save.honor = 0;
+t('an empty purse is refused', !X.applyShopOp('upg', 'dmg'));
+t('the admin brush cannot be equipped by wire', !X.applyShopOp('equip', 'fudemaru'));
+
+console.log('duel homing — a flat magnet the roll still answers');
+{
+  const foe = { x: 400, y: 330, hp: 100 };
+  const a = { x: 0, y: 300, vx: 500, vy: 0, travel: 100, dead: false,
+              pvp: true, owner: { foe } };
+  X.homeDuelArrow(a, 1 / 60);
+  t('inside the 10° cone the shaft bends toward the foe', a.vy > 0);
+  const b = { x: 0, y: 300, vx: 500, vy: 0, travel: 100, dead: false,
+              pvp: true, owner: { foe: { x: 400, y: 500, hp: 100 } } };
+  X.homeDuelArrow(b, 1 / 60);
+  t('outside the cone there is no magnet', b.vy === 0);
+  const c = { x: 0, y: 300, vx: 500, vy: 0, travel: 30, dead: false,
+              pvp: true, owner: { foe } };
+  X.homeDuelArrow(c, 1 / 60);
+  t('point-blank shafts fly honest', c.vy === 0);
+}
+
+console.log('蔓 riana — the admin vine');
+{
+  X.game.mode = 'level'; X.game.state = 'playing';
+  // the seal: unlock survives the sanitizing merge; without it the bow resets
+  X.applySaveData({ honor: 0, owned: ['tetsu'], stats: { kills: 1 },
+                    rianaUnlocked: true, bowEquipped: 'riana' });
+  t('the vine stays strung while its seal stands', X.save.bowEquipped === 'riana');
+  X.applySaveData({ honor: 0, owned: ['tetsu'], stats: { kills: 1 },
+                    bowEquipped: 'riana' });
+  t('without the seal the vine withers to shortbow', X.save.bowEquipped === 'shortbow');
+  X.save.rianaUnlocked = true;
+  t('the seal strings the vine by wire too', X.applyShopOp('strBow', 'riana')
+    && X.save.bowEquipped === 'riana');
+  // 100% accuracy: full-sky seek, no cone — an arrow flying dead AWAY
+  // from the only foe turns fully around within half a second
+  const g2 = new X.Grunt(200, 300); g2.state = 'circle';
+  X.enemiesSet = [g2];
+  X.game.kyudo = null;
+  const va = { x: 600, y: 300, vx: 700, vy: 0, travel: 200, dead: false,
+               pvp: false, hit: [], bowId: 'riana', owner: X.player };
+  for (let i = 0; i < 30; i++) {
+    X.homePArrow(va, 1 / 60);
+    va.x += va.vx / 60; va.y += va.vy / 60;
+  }
+  t('the vine does not miss — a fleeing shaft turns back', va.vx < 0);
+  // admin arms live outside the temper economy
+  X.enemiesSet = []; X.game.mode = 'level';
+  X.save.weaponXP = {};
+  X.grantWeaponXP('riana', 500);
+  t('admin arms bank no temper', !X.save.weaponXP.riana);
+  X.save.rianaUnlocked = false; X.save.bowEquipped = 'shortbow';
+}
+
+console.log('the aim channel — a cursor quantized onto the wire');
+{
+  let worst = 0;
+  for (const a of [-3, -1.2, 0, .7, 2.9, 6.1]) {
+    const back = X.unpackAim(X.packAim(a) | 16 | 2048);   // survives other bits
+    const want = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    let d = Math.abs(back - want) % (Math.PI * 2);
+    if (d > Math.PI) d = Math.PI * 2 - d;
+    worst = Math.max(worst, d);
+  }
+  t('aim round-trips within a spoke (≤0.7°)', worst < (Math.PI * 2) / 256);
+  t('no aim flag means no aim', X.unpackAim(16 | 2048 | 4096) === null);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

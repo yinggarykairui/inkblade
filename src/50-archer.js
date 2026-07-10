@@ -65,8 +65,11 @@ let burnZones = [];    // fire-bow ground patches, owner-aware
 /* 導矢 guided shafts — eight-spoked keyboard aim makes the bow cruel to
    love, so PvE arrows lean toward a foe already near their line: a
    gentle bend inside a ~25° cone, widening to 90° while the ink surge
-   burns. PvP arrows never home — duels stay reads, not magnets — and
-   the seek is fully deterministic (nearest foe, no dice).            */
+   burns. DUELS home too now (2026-07-09) — but FLAT and gentler: a fixed
+   ~10° cone, slower bend, dead inside point-blank, never trained (no
+   kyudo) and never surge-widened. The counterplay stack answers it:
+   roll i-frames, the parry, an active slash's deflect, bamboo cover.
+   Both seeks are fully deterministic (no dice) — lockstep-safe.       */
 const ARROW_HOME = {
   base: 15 * Math.PI / 180,       // untrained seek half-cone
   perRank: 1.5 * Math.PI / 180,   // each 弓道 rank widens it — 30° at rank 10
@@ -78,6 +81,24 @@ const ARROW_HOME = {
 function homePArrow(a, dt) {
   // the rite judges the naked eye — no guidance while the straw waits
   if (game.kyudo && game.kyudo.on) return;
+  // 蔓 the vine does not miss: full-sky seek, no cone, no range — the
+  // shaft turns as hard as it must until something is struck
+  if (a.bowId === 'riana') {
+    let best = null, bd = 1e9;
+    for (const e of enemies) {
+      if (e.dead || e.state === 'spawn' || a.hit.includes(e)) continue;
+      const d = dist(a.x, a.y, e.x, e.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (!best) return;
+    const head = Math.atan2(a.vy, a.vx);
+    const bend = clamp(angDiff(head, Math.atan2(best.y - a.y, best.x - a.x)),
+                       -14 * dt, 14 * dt);
+    const sp = Math.hypot(a.vx, a.vy);
+    a.vx = Math.cos(head + bend) * sp;
+    a.vy = Math.sin(head + bend) * sp;
+    return;
+  }
   // P1's surge and kyudo ranks guide only P1's shafts; P2 flies untrained
   const own2 = !!(a.owner && a.owner.p2);
   const surged = !own2 && ultBuffed();
@@ -101,6 +122,22 @@ function homePArrow(a, dt) {
   a.vy = Math.sin(head + bend) * speed;
 }
 
+// the duel's magnet: one foe, one flat cone, one honest bend
+// (蔓 the admin vine ignores the cone — both hands chose an admin ring)
+function homeDuelArrow(a, dt) {
+  const foe = a.owner && a.owner.foe;
+  if (!foe || foe.hp <= 0) return;
+  const vine = a.bowId === 'riana';
+  if (!vine && a.travel < 60) return;            // point-blank stays a read
+  const head = Math.atan2(a.vy, a.vx);
+  const off = angDiff(head, Math.atan2(foe.y - a.y, foe.x - a.x));
+  if (!vine && Math.abs(off) > 10 * Math.PI / 180) return;   // outside the cone: no magnet
+  const rate = vine ? 14 : 2.2;
+  const bend = clamp(off, -rate * dt, rate * dt);
+  const sp = Math.hypot(a.vx, a.vy);
+  a.vx = Math.cos(head + bend) * sp;
+  a.vy = Math.sin(head + bend) * sp;
+}
 function toggleStanceFor(pl) {   // PvE only; duel fighters carry their own toggles
   if (game.state !== 'playing' || game.mode === 'duel') return;
   if (eqOf(pl) === 'fudemaru') {
@@ -163,7 +200,8 @@ function updatePArrows(dt) {
   for (const a of pArrows) {
     if (a.dead) continue;
     if (a.delay > 0) { a.delay -= dt; if (a.delay > 0) continue; }
-    if (!a.pvp) homePArrow(a, dt);   // guided shafts — PvE only
+    if (a.pvp) homeDuelArrow(a, dt);   // the flat duel magnet
+    else homePArrow(a, dt);            // the trained PvE seek
     a.x += a.vx * dt; a.y += a.vy * dt;
     a.travel += Math.hypot(a.vx, a.vy) * dt;
     a.trail.push({ x: a.x, y: a.y });          // drying-ink wake (cosmetic)
@@ -222,9 +260,14 @@ function updatePArrows(dt) {
           }
         } else if (foe.iT <= 0) {
           a.dead = true;
-          // PvP arrows run reduced, point-blank halves again — steel stays king up close
-          const dmg = Math.max(1, Math.round(a.dmg * .6 * (a.travel < 85 ? .5 : 1)));
+          // PvP arrows run at ×.8 (was ×.6 — a double tax from the days
+          // before homing, when they almost never landed); point-blank
+          // still halves — steel stays king up close. A FULL longbow draw
+          // now punishes like a heavy blade; taps stay honest chip.
+          const dmg = Math.max(1, Math.round(a.dmg * .8 * (a.travel < 85 ? .5 : 1)));
           damageFighter(foe, dmg, Math.atan2(a.vy, a.vx));
+          if (a.bowId === 'riana' && foe.hp > 0)   // the vine staggers in the ring too
+            foe.staggerT = Math.max(foe.staggerT, .5);
           fx('arrowImpact', { owner: a.owner, x: a.x, y: a.y,
                               ang: Math.atan2(a.vy, a.vx), bowId: a.bowId });
           addFighterUlt(a.owner, dmg * .4);   // bows feed the 奥義 at a reduced rate
@@ -236,12 +279,24 @@ function updatePArrows(dt) {
         if (e.dead || e.state === 'spawn' || a.hit.includes(e)) continue;
         if (dist(a.x, a.y, e.x, e.y) < e.r + 4) {
           a.hit.push(e);
-          const pb = a.travel < 85;
+          const vine = a.bowId === 'riana';
+          const pb = !vine && a.travel < 85;
           // shield ashigaru turn frontal shafts aside — flank or break them
-          const blocked = e.shielded && e.brokenT <= 0 &&
+          // (the vine parts every shield: each of its hits is an ultimate)
+          const blocked = !vine && e.shielded && e.brokenT <= 0 &&
             Math.abs(angDiff(e.face, e.angTo())) < 1.15;
           e.hurt(Math.max(1, Math.round(a.dmg * (pb ? .5 : 1))),
-                 Math.atan2(a.vy, a.vx), undefined, 6, a.owner || player, a.bowId);
+                 Math.atan2(a.vy, a.vx), vine ? .5 : undefined,
+                 vine ? 40 : 6, a.owner || player, a.bowId);
+          if (vine) {   // the ultimate lands: lightning walks, the vine signs
+            chainLightning(e.x, e.y, 2);
+            particles.push({ kind: 'glyph', ch: '蔓', color: '#39ff88',
+              x: e.x, y: e.y - e.r - 10, vx: 0, vy: -22, t: 0, life: .7,
+              size: 26, misted: false });
+            particles.push({ kind: 'ring', x: e.x, y: e.y, t: 0, life: .4,
+              color: 'rgba(57,255,136,.7)', r0: 8, r1: 66, w: 3 });
+            freeze(.04); shake(3);
+          }
           fx('arrowImpact', { owner: a.owner, x: a.x, y: a.y,
                               ang: Math.atan2(a.vy, a.vx), bowId: a.bowId });
           if (!(a.owner && a.owner.p2)) {   // P2 is progression-free

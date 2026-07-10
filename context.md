@@ -765,3 +765,123 @@ horns regardless of type · bosses scale everything by r/14 and SMOLDER
 (ink-smoke wisps from Enemy.update, cosmetic die). Club gained a knot,
 rapier a hilt guard. Ghosts/dummies keep the plain notch. Hitboxes,
 telegraphs, balance: untouched. Harness: 74 green.
+
+## 2026-07-09i — CO-OP PARITY: chests for either blade, the stall crosses the wire
+
+**Chests in co-op**: `tryInteract(pl)` is entity-aware — chests (pure
+sim) open under EITHER samurai; the stall/shrine scrolls (UI) answer P1
+alone. Online, the guest's E bit now applies (`applyBits`: gate removed
+— tryInteract itself does the gating), tick-synced so both sims open
+the same chest together. Couch P2 gets `.` = interact (keydown block,
+pause card + co-op label updated). The "E — open the chest" prompt
+follows `localSamurai()` (30-player) — the guest's own body.
+
+**Merchant ONLINE**: the infinite stall portal now spawns online (gate
+removed in startInfiniteWave). Both sims reach the portal at the same
+tick (it reads P1's body): the host's client opens the shop; the
+guest's enters a new `'shopwait'` state (updatePortal branch — frozen,
+banner "the host trades"). Every mutating stall action now routes
+through ONE path: `applyShopOp(op, id)` in 70-ui (ops: upg / key /
+charmBuy / charmWear / charmOff / arm / equip / strBow — all validated),
+wrapped by `shopOp` which the onclick handlers call and which, when
+hosting online, ships `{t:'shopOp', op, id}`; the guest's onNetData
+applies the identical mutation to the borrowed ledger. `closeShop`
+sends `{t:'shopClose'}` → guest leaves shopwait at the same tick. The
+death-scroll TRAIN button hides for the online guest (borrowed ledger).
+
+Already-verified lockstep-safe with no changes needed: chest spawns/
+rolls/stones (seeded stream), shrine stacking + bargains (spawn-rolled
+picks + bless message), P2 resolve, retinue/surge, hot combo, temper
+motes, lesson honor, ink-menace visuals (inkSeed rides the sim stream).
+Harness: 79 assertions.
+
+## 2026-07-09j — LOCKSTEP LOSS RECOVERY + mob silhouette identity
+
+**The online "timeout" was packet loss with no recovery**: the co-op
+channel is reliable:false — UNORDERED AND LOSSY (the old comment claiming
+"still retransmitting" was wrong). One dropped 'in' packet starved the
+lockstep at that tick forever. Three-part fix in 60-net: (1) every input
+packet carries a redundancy window `w` of the previous 3 ticks (handler
+backfills gaps); (2) a stall that survives >0.8s sends {t:'req', k} and
+the peer resends its localQ from k..k+24; (3) the stale-input sweep keeps
+60 ticks of history (was 20) so re-requests can be answered. ALSO fixed a
+shopOp race I introduced: the guest now QUEUES shopOp/shopClose messages
+that arrive while its sim is still ticking toward the stall tick
+(net.shopQ/shopCloseQ, flushed in updatePortal's shopwait branch) —
+applying early mutated stats mid-tick and drifted the checksum.
+
+**Mob identity rework** ("they all look like ninjas"): the mempo mask is
+now worn ONLY by shinobi, duelmaster and lords — everyone else keeps the
+eye slits (dark slits on pale bodies, pale on inked ones). SHAPE is the
+identity: `bodyStyleOf(e)` gives each type a silhouette archetype fed to
+the upgraded `inkBlobPath` (point count, roughness, spike, elong/squish
+relative to facing): grunt round · duelist LEAN · brute WIDE · archer
+trim under a much bigger kasa · shinobi JAGGED (9 spiked points) ·
+ashigaru PLATED (8 smooth points, wider jingasa) · mirror POLISHED
+(16 points, rough .15) · duelmaster lean+. Value ramp widened in
+05-palette (archer/shinobi lighter, duelist/brute darker). Harness: 79.
+
+## 2026-07-09k — DUEL ARROW HOMING (flat, gentle, deterministic)
+
+PvP arrows now home via `homeDuelArrow` (50-archer): the one foe, a
+FIXED ~10° cone, 2.2 rad/s bend, dead under 60 travel (point-blank
+stays a read) — never kyudo-trained, never surge-widened, no dice
+(online lockstep safe). The counterplay stack already answers it: roll
+i-frames, parry, active-slash deflect, bamboo. PvE seek unchanged. Bow
+tooltip updated. Harness: 82 assertions.
+
+## 2026-07-09l — MOUSE AIM IN LOCAL DUELS
+
+`duelMouseAimOn()` (10-dom): local duels only — cursor owns P1's facing
+(updateFighter, after key-facing so the cursor wins), click buffers the
+slash (mousedown branch), held button bends the bow (the `held` read in
+the fighter bow block). ONLINE duels stay keys for both: the lockstep
+wire carries key bits only — no aim channel, and one-sided cursor aim
+would be unfair regardless. Settings label updated. Requires the
+existing `mouse aim` setting ON. Harness: 82.
+
+## 2026-07-09m — THE AIM CHANNEL: mouse crosses the wire
+
+Online mouse aim, done honestly through the lockstep: `packAim`/
+`unpackAim` (60-net) quantize the cursor angle to 256 spokes riding
+input-bit positions 13–20 (bit 21 = valid) — the angle is INPUT, applied
+identically in both sims (`f.netCtl.aim` in applyBits; facing hooks in
+updateFighter + updateSamurai, after key-facing so aim wins). Rules:
+ONLINE DUELS need mutual consent — the guest's join carries its mouse
+setting, the host's start message carries `mouseBoth`, and aim bits are
+only SENT when it holds (round-1 banner says "両 mouse aim: both hands").
+The CO-OP STORM lets each hand choose for its own samurai, no consent
+needed (cooperative). Clicks ride the tick pipeline (mousedown →
+net.pend.atk); the held button feeds the bow-draw bit. Local duels
+(2026-07-09l) unchanged. Harness: 84 assertions.
+
+## 2026-07-09n — DUEL QoL: Shift/C binds + bow damage untaxed
+
+Local duels: P1 answers BOTH bind sets now — the duel row (V/B/N) and
+the PvE muscle memory (Shift roll, C parry), matching what the online
+ring already accepted (10-dom local-duel branch; pause card updated).
+Duel bow damage: the PvP arrow multiplier rose ×.6 → ×.8 (50-archer) —
+the old value was a double tax (swords keep the duel ×1.6 on raw stats;
+arrows got ×1.6 then ×.6 = net ×.96) from before homing existed. At
+range now: shortbow ~14 · full longbow ~33 · repeater 8/shaft · full
+stormbow ~20/shaft. Point-blank still halves; deflect/parry/i-frames
+unchanged. Harness: 84.
+
+## 2026-07-09o — 蔓 RIANA, THE ADMIN BOW (seal word: liana)
+
+A second admin arm beside Fudemaru: BOWS.riana (20-data — admin:true,
+pierce 99, draw .15, dmg 60, stCost 0, neon green in WPN_NEON). Typing
+"liana" / "蔓" / "the vine that seeks" on the title seal toggles
+`save.rianaUnlocked` (persists; crosses rebirth; sanitizer keeps the
+bow strung only while the seal stands — 25-save). Behavior: PERFECT
+SEEK — full-sky homing at 14 rad/s in PvE (homePArrow riana branch,
+before nothing; still dead during the kyudo rite, which the vine is
+BLOCKED from starting) and cone-free seek in duels (homeDuelArrow).
+Every hit is an ultimate: pierces (99), ignores shield fronts, staggers
+(.5) with 40 posture, walks chainLightning(2), signs a 蔓 glyph + neon
+ring; PvP hits stagger too. Outside every economy: grantWeaponXP
+refuses it; not in bowsOwned; strung via the seal or applyShopOp's
+vineOk exception (mirrors online). Design dress: always-neon curling
+tendril shaft with a glowing bud (drawPArrow branch), green motes climb
+the string at rest (updateSamurai), admin-red row in the shop rack and
+duel pickers. Harness: 89 assertions.

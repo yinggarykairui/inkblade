@@ -34,8 +34,74 @@ function closeShop() {
   }
   showOverlay('none');
   game.state = 'playing';
+  // 網 online co-op: the guest froze in 'shopwait' when the host stepped
+  // into the stall — this releases them at the same tick the host resumes
+  if (netCoop() && net.started) {
+    try { net.conn.send({ t: 'shopClose' }); } catch (e) {}
+  }
   // stepping out of the stall portal shouldn't immediately re-trigger it
   if (portal && portal.kind === 'merchant') portal.armed = false;
+}
+/* ---------- mirrored stall operations (online co-op) ----------
+   Every purchase/equip mutates the SAVE the guest borrowed — upgrades
+   change P1's statline, keys change future chest rolls, blades change
+   damage — so each op must land on BOTH sims or the lockstep drifts.
+   applyShopOp is the single mutation path; shopOp wraps it for the local
+   UI and, when hosting online, ships the op across the wire. Both sims
+   are frozen while the stall is open (host in 'shop', guest in
+   'shopwait'), so ops apply atomically between ticks.                 */
+function applyShopOp(op, id) {
+  if (op === 'upg') {
+    const u = UPGRADE_DEFS[id];
+    const tier = save.upgrades[id];
+    if (!u || tier >= UPGRADE_MAX || game.honor < u.costs[tier]) return false;
+    game.honor -= u.costs[tier]; save.honor = game.honor;
+    save.upgrades[id]++;
+    refreshPlayerStats();
+  } else if (op === 'key') {
+    const keyCost = Math.round(120 * Math.pow(2.2, (save.maps.unlocked || 1) - 1));
+    if (save.chestKey || game.honor < keyCost) return false;
+    game.honor -= keyCost; save.honor = game.honor;
+    save.chestKey = true;
+  } else if (op === 'charmBuy') {
+    const c = CHARMS.find(x => x.id === id);
+    if (!c || save.charmsOwned.includes(id) || game.honor < c.cost) return false;
+    game.honor -= c.cost; save.honor = game.honor;
+    save.charmsOwned.push(id);
+    save.charm = id;
+  } else if (op === 'charmWear') {
+    if (!save.charmsOwned.includes(id)) return false;
+    const slots = rebirthLevel() >= 6 ? ['charm', 'charm2'] : ['charm'];
+    if (slots.some(s => save[s] === id)) return false;
+    const free = slots.find(s => !save[s]);
+    save[free || 'charm'] = id;
+  } else if (op === 'charmOff') {
+    const slot = ['charm', 'charm2'].find(s => save[s] === id);
+    if (!slot) return false;
+    save[slot] = null;
+  } else if (op === 'arm') {
+    if (!buyArm(id)) return false;
+  } else if (op === 'equip') {
+    if (!WEAPONS[id] || WEAPONS[id].admin || !save.owned.includes(id)) return false;
+    game.equipped = id; save.equipped = id; game.ameStacks = 0;
+  } else if (op === 'strBow') {
+    const vineOk = id === 'riana' && save.rianaUnlocked;
+    if (!vineOk && (!BOWS[id] || BOWS[id].admin || !save.bowsOwned.includes(id)))
+      return false;
+    save.bowEquipped = id;
+  } else return false;
+  persistSave();
+  return true;
+}
+function shopOp(op, id) {
+  if (!applyShopOp(op, id)) return;
+  if (op !== 'equip' && op !== 'strBow' && op !== 'charmWear' && op !== 'charmOff')
+    playSfx('buy');
+  lastBought = id || op;
+  if (netCoop() && net.started && net.host) {
+    try { net.conn.send({ t: 'shopOp', op, id }); } catch (e) {}
+  }
+  renderShopUI();
 }
 function drawWeaponIcon(canvas, wpn) {
   const c = canvas.getContext('2d');
@@ -169,12 +235,7 @@ function armoryEquipRow(row, isBow) {
     b.className = 'lvlBtn' + (cur ? ' sel' : '');
     b.textContent = it.kanji;
     b.title = `${it.name} — ${it.epithet}`;
-    b.onclick = () => {
-      if (isBow) save.bowEquipped = id;
-      else { game.equipped = id; save.equipped = id; game.ameStacks = 0; }
-      persistSave();
-      renderShopUI();
-    };
+    b.onclick = () => shopOp(isBow ? 'strBow' : 'equip', id);
     wrap.appendChild(b);
   }
   row.children[1].appendChild(wrap);
@@ -224,7 +285,7 @@ function drawBowIcon(canvas, bow) {
   const y = canvas.height / 2, x0 = 16, x1 = canvas.width - 20;
   c.clearRect(0, 0, canvas.width, canvas.height);
   c.lineCap = 'round';
-  c.strokeStyle = bow.legendary ? GOLD : INK;
+  c.strokeStyle = bow.admin ? '#39ff88' : bow.legendary ? GOLD : INK;
   c.lineWidth = bow.id === 'longbow' ? 3.2 : 2.4;
   c.beginPath();
   c.moveTo(x0 + 6, y - 9);
@@ -246,11 +307,13 @@ function drawBowIcon(canvas, bow) {
 }
 function renderBows() {
   shopEl.innerHTML = '';
-  for (const id of BOW_ORDER) {
+  const order = save.rianaUnlocked ? BOW_ORDER.concat(['riana']) : BOW_ORDER;
+  for (const id of order) {
     const b0 = BOWS[id];
-    const bowOwned = save.bowsOwned.includes(id);
+    const bowOwned = b0.admin ? save.rianaUnlocked : save.bowsOwned.includes(id);
     const row = document.createElement('div');
-    row.className = 'shopItem' + (bowOwned ? '' : ' locked') + (b0.legendary ? ' legendary' : '');
+    row.className = 'shopItem' + (bowOwned ? '' : ' locked') +
+      (b0.legendary ? ' legendary' : '') + (b0.admin ? ' admin' : '');
     const icon = document.createElement('canvas');
     icon.width = 64; icon.height = 22;
     drawBowIcon(icon, b0);
@@ -260,33 +323,31 @@ function renderBows() {
     info.innerHTML =
       `<div class="si-name"><span class="kj">${b0.kanji}</span>${b0.name} — “${b0.epithet}”</div>` +
       `<div class="si-desc">${b0.desc}</div>` +
-      (bowOwned ? `<div class="si-desc">temper <b>L${wxpOf(id).lvl}</b>/${rarityOf(id).cap}` +
+      (bowOwned && !b0.admin ? `<div class="si-desc">temper <b>L${wxpOf(id).lvl}</b>/${rarityOf(id).cap}` +
         (wxpOf(id).lvl >= rarityOf(id).cap ? ' — fully tempered'
           : ` · ${fmtNum(wxpOf(id).xp)}/${fmtNum(xpForLevel(wxpOf(id).lvl))} xp`) +
         ` · ×${(rarityMult(id) * wxpMult(id)).toFixed(1)}</div>` : '') +
-      `<div class="si-desc"><i>導 shafts gently seek a foe within ${Math.round(15 + kyudoRank() * 1.5)}° of their line — 弓道 ranks widen the eye (never in duels)</i></div>` +
-      `<div class="si-desc"><i>Q strings the bow in any trial; hold V to draw, release to loose.</i></div>`;
+      (b0.admin
+        ? `<div class="si-desc"><i>蔓 outside every seek rule, every economy, every rite — the word that woke it puts it back to sleep</i></div>`
+        : `<div class="si-desc"><i>導 shafts gently seek a foe within ${Math.round(15 + kyudoRank() * 1.5)}° of their line — 弓道 ranks widen the eye. Duels: a flat 10°, never trained — the roll and the parry answer it</i></div>` +
+          `<div class="si-desc"><i>Q strings the bow in any trial; hold V to draw, release to loose.</i></div>`);
     row.appendChild(info);
     const right = document.createElement('div');
     right.className = 'si-right';
-    if (save.bowsOwned.includes(id)) {
+    if (bowOwned) {
       if (save.bowEquipped === id) {
         right.innerHTML = `<span class="si-cost">— strung —</span>`;
       } else {
         const btn = document.createElement('button');
         btn.className = 'ghost'; btn.textContent = 'STRING';
-        btn.onclick = () => {
-          save.bowEquipped = id;
-          persistSave();
-          renderShopUI();
-        };
+        btn.onclick = () => shopOp('strBow', id);
         right.appendChild(btn);
       }
     } else if (b0.price) {
       const b = document.createElement('button');
       b.textContent = `BUY 誉 ${fmtNum(b0.price)}`;
       if (game.honor < b0.price) b.disabled = true;
-      else b.onclick = () => { if (buyArm(id)) { lastBought = id; renderShopUI(); } };
+      else b.onclick = () => shopOp('arm', id);
       right.appendChild(b);
       const tag = document.createElement('div');
       tag.className = 'si-cost';
@@ -325,13 +386,7 @@ function renderCharms() {
       const b = document.createElement('button');
       b.textContent = `BUY 誉 ${fmtNum(keyCost)}`;
       if (game.honor < keyCost) b.disabled = true;
-      else b.onclick = () => {
-        game.honor -= keyCost; save.honor = game.honor;
-        save.chestKey = true;
-        persistSave();
-        playSfx('buy');
-        renderShopUI();
-      };
+      else b.onclick = () => shopOp('key');
       right.appendChild(b);
     }
     row.appendChild(right);
@@ -358,32 +413,20 @@ function renderCharms() {
       const b = document.createElement('button');
       if (wornSlot) {
         b.className = 'ghost'; b.textContent = 'UNEQUIP';
-        b.onclick = () => { save[wornSlot] = null; persistSave(); renderShopUI(); };
+        b.onclick = () => shopOp('charmOff', c.id);
         const tag = document.createElement('div');
         tag.className = 'si-cost'; tag.textContent = '— worn —';
         right.appendChild(tag);
       } else {
         b.className = 'ghost'; b.textContent = 'WEAR';
-        b.onclick = () => {
-          const free = slots.find(s => !save[s]);
-          save[free || 'charm'] = c.id;   // both full: the first wrist trades
-          persistSave(); renderShopUI();
-        };
+        b.onclick = () => shopOp('charmWear', c.id);
       }
       right.appendChild(b);
     } else {
       const b = document.createElement('button');
       b.textContent = `BUY 誉 ${c.cost}`;
       if (game.honor < c.cost) b.disabled = true;
-      else b.onclick = () => {
-        game.honor -= c.cost; save.honor = game.honor;
-        save.charmsOwned.push(c.id);
-        save.charm = c.id;
-        persistSave();
-        lastBought = c.id;
-        playSfx('buy');
-        renderShopUI();
-      };
+      else b.onclick = () => shopOp('charmBuy', c.id);
       right.appendChild(b);
     }
     row.appendChild(right);
@@ -436,13 +479,7 @@ function renderSwords() {
       } else {
         const b = document.createElement('button');
         b.className = 'ghost'; b.textContent = 'EQUIP';
-        b.onclick = () => {
-          game.equipped = id; game.ameStacks = 0;
-          // the ledger remembers every choice — the brush too, while unsealed
-          save.equipped = id;
-          persistSave();
-          renderShopUI();
-        };
+        b.onclick = () => shopOp('equip', id);
         right.appendChild(b);
       }
     } else if (w.price) {
@@ -450,7 +487,7 @@ function renderSwords() {
       const b = document.createElement('button');
       b.textContent = `BUY 誉 ${fmtNum(w.price)}`;
       if (game.honor < w.price) b.disabled = true;
-      else b.onclick = () => { if (buyArm(id)) { lastBought = id; renderShopUI(); } };
+      else b.onclick = () => shopOp('arm', id);
       right.appendChild(b);
       const tag = document.createElement('div');
       tag.className = 'si-cost';
@@ -494,14 +531,7 @@ function renderUpgrades() {
       const b = document.createElement('button');
       b.textContent = `TRAIN 誉 ${cost}`;
       if (game.honor < cost) b.disabled = true;
-      else b.onclick = () => {
-        game.honor -= cost; save.honor = game.honor;
-        save.upgrades[key]++;
-        persistSave();
-        refreshPlayerStats();
-        lastBought = key;
-        renderShopUI();
-      };
+      else b.onclick = () => shopOp('upg', key);
       right.appendChild(b);
     }
     row.appendChild(right);
@@ -712,7 +742,7 @@ function renderMenu() {
     document.getElementById('coopSetup').style.display = showPicks ? 'block' : 'none';
     document.getElementById('coopBladeLabel').textContent = menuSel.coopOnline
       ? '— your blade when JOINING a room · the host plays their own samurai —'
-      : '— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate —';
+      : '— player 2 blade · arrows + U slash + I roll + O parry + P bow + , meditate + . chest —';
     if (showPicks) {
       if (!WEAPONS[menuSel.p2Blade] || WEAPONS[menuSel.p2Blade].admin) menuSel.p2Blade = 'tetsu';
       if (!BOWS[menuSel.p2Bow]) menuSel.p2Bow = 'shortbow';
@@ -817,16 +847,20 @@ function renderMenu() {
     if (!BOWS[menuSel.p2Bow]) menuSel.p2Bow = 'shortbow';
     document.getElementById('p2BowLabel').style.display = showP2 ? '' : 'none';
     document.getElementById('p2BowRow').style.display = showP2 ? 'flex' : 'none';
+    const duelBows = save.rianaUnlocked ? BOW_ORDER.concat(['riana']) : BOW_ORDER;
     for (const [rowId, key] of [['p1BowRow', 'p1Bow'], ['p2BowRow', 'p2Bow']]) {
       const row = document.getElementById(rowId);
       row.innerHTML = '';
-      for (const id of BOW_ORDER) {
+      for (const id of duelBows) {
         const b0 = BOWS[id];
         const b = document.createElement('button');
         b.className = 'lvlBtn' + (menuSel[key] === id ? ' sel' : '');
+        if (b0.admin) b.style.color = 'var(--red)';
         b.textContent = b0.kanji;
-        b.title = `${b0.name} — ${b0.epithet}` +
-          (save.bowsOwned.includes(id) ? '' : ' (duels only until purchased)');
+        b.title = b0.admin
+          ? `${b0.name} — ADMIN · the vine does not miss; every hit an ultimate`
+          : `${b0.name} — ${b0.epithet}` +
+            (save.bowsOwned.includes(id) ? '' : ' (duels only until purchased)');
         b.onclick = () => { menuSel[key] = id; renderMenu(); };
         row.appendChild(b);
       }
@@ -1030,6 +1064,19 @@ sealInputEl.addEventListener('keydown', ev => {
       save.equipped = 'fudemaru';
       persistSave();
       sealMsgEl.textContent = '筆 the brush awakens — and it will remember, even if you leave';
+    }
+  } else if (v === 'liana' || v === '蔓' || v === 'the vine that seeks') {
+    if (save.rianaUnlocked) {
+      // spoken twice, the vine withers back into its seal
+      save.rianaUnlocked = false;
+      if (save.bowEquipped === 'riana') save.bowEquipped = 'shortbow';
+      persistSave();
+      sealMsgEl.textContent = '蔓 the vine withers — its seal closes';
+    } else {
+      save.rianaUnlocked = true;
+      save.bowEquipped = 'riana';
+      persistSave();
+      sealMsgEl.textContent = '蔓 the vine wakes and strings itself — it will remember, even if you leave';
     }
   } else {
     sealMsgEl.textContent = 'the seal does not answer';

@@ -57,6 +57,7 @@ function defaultSave() {
     stats: Object.assign({}, DEFAULT_STATS, { bladeKills: {} }),
     headband: null,           // tournament cosmetic ('gold')
     adminUnlocked: false,     // the seal, once inscribed, holds across reloads
+    rianaUnlocked: false,     // 蔓 the vine's own seal — the word is its name
     audio: { master: .8, sfx: 1, ambient: .7, muted: false },
     shakeMul: 1,              // screen-shake intensity setting
     colorblind: false,        // high-contrast telegraph palette
@@ -106,8 +107,13 @@ function applySaveData(d) {
   if (!Array.isArray(save.bowsOwned) || !save.bowsOwned.includes('shortbow'))
     save.bowsOwned = ['shortbow'].concat(
       Array.isArray(save.bowsOwned) ? save.bowsOwned.filter(b => BOWS[b]) : []);
-  save.bowsOwned = save.bowsOwned.filter(b => BOWS[b]);
-  if (!BOWS[save.bowEquipped] || !save.bowsOwned.includes(save.bowEquipped))
+  save.bowsOwned = save.bowsOwned.filter(b => BOWS[b] && !BOWS[b].admin);
+  save.rianaUnlocked = !!d.rianaUnlocked;
+  // the vine stays strung across reloads only while its seal stands
+  const rianaOk = save.bowEquipped === 'riana' && save.rianaUnlocked;
+  if (!rianaOk &&
+      (!BOWS[save.bowEquipped] || BOWS[save.bowEquipped].admin ||
+       !save.bowsOwned.includes(save.bowEquipped)))
     save.bowEquipped = 'shortbow';
   // progression overhaul fields — old saves gain them at zero
   save.weaponXP = Object.assign({}, d.weaponXP);
@@ -168,7 +174,9 @@ function wxpLvl(id) { return wxpOf(id).lvl; }
 function wxpMult(id) { return wxpGrowth(wxpLvl(id)); }
 function rarityMult(id) { return rarityOf(id).mult; }
 function grantWeaponXP(id, amt) {
-  if (!id || id === 'fudemaru' || game.mode === 'duel' || !(amt > 0)) return;
+  // admin arms live outside every progression system
+  if (!id || id === 'fudemaru' || id === 'riana' ||
+      game.mode === 'duel' || !(amt > 0)) return;
   const w = save.weaponXP[id] = save.weaponXP[id] || { xp: 0, lvl: 0 };
   const cap = rarityOf(id).cap;
   if (w.lvl >= cap) return;
@@ -248,6 +256,7 @@ function doRebirth() {
     ascStones: save.ascStones, // spare stones survive (the walk consumed one)
     recCycles: save.recCycles,
     adminUnlocked: save.adminUnlocked,
+    rianaUnlocked: save.rianaUnlocked,
     audio: save.audio, shakeMul: save.shakeMul,
     colorblind: save.colorblind, mouseAim: save.mouseAim,
     seed: save.seed, chestsOpened: save.chestsOpened,
